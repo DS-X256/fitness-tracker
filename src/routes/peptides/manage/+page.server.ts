@@ -17,7 +17,7 @@ import {
 import { createVial, deleteVial, listVials, setVialDepleted } from '$lib/server/repositories/peptideVials';
 import { seedPeptidesForUser } from '$lib/server/peptidePresets';
 import { parseDecimal } from '$lib/utils/parseDecimal';
-import { isPeptideCategory, isInjectionRoute } from '$lib/utils/peptides';
+import { isPeptideCategory, isAdminRoute, isContainerForm } from '$lib/utils/peptides';
 import { isFrequency } from '$lib/utils/peptideSchedule';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -108,7 +108,7 @@ export const actions: Actions = {
 		const input = {
 			peptideId: Number(form.get('peptideId')),
 			doseMcg,
-			route: isInjectionRoute(route) ? route : null,
+			route: isAdminRoute(route) ? route : null,
 			frequency,
 			weekdayMask: frequency === 'weekly' ? weekdayMask(form) : null,
 			perWeek: num(form, 'perWeek'),
@@ -142,16 +142,24 @@ export const actions: Actions = {
 	saveVial: async ({ request, locals }) => {
 		const userId = locals.user!.id;
 		const form = await request.formData();
+		const formValue = String(form.get('form') ?? '');
+		const container = isContainerForm(formValue) ? formValue : 'vial';
 		const vialMg = num(form, 'vialMg');
-		if (vialMg == null) return fail(400, { error: 'Enter the vial size in mg' });
+		if (container === 'vial' && vialMg == null) return fail(400, { error: 'Enter the vial size in mg' });
 		try {
 			await createVial(userId, {
 				peptideId: Number(form.get('peptideId')),
+				form: container,
 				vialMg,
 				bacWaterMl: num(form, 'bacWaterMl'),
 				reconstitutedAt: str(form, 'reconstitutedAt'),
 				expiresAt: str(form, 'expiresAt'),
-				notes: str(form, 'notes')
+				notes: str(form, 'notes'),
+				concentrationMgMl: num(form, 'concentrationMgMl'),
+				actuationVolumeUl: num(form, 'actuationVolumeUl'),
+				primingActuations: num(form, 'primingActuations'),
+				unitCount: num(form, 'unitCount'),
+				unitMassMcg: num(form, 'unitMassMcg')
 			});
 		} catch (e) {
 			return fail(400, { error: e instanceof Error ? e.message : 'Could not save vial' });

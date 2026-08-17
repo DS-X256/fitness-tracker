@@ -3,13 +3,22 @@
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import Card from '$lib/components/Card.svelte';
 	import Button from '$lib/components/Button.svelte';
+	import Chip from '$lib/components/Chip.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import Modal from '$lib/components/Modal.svelte';
 	import NumberField from '$lib/components/NumberField.svelte';
 	import TextareaField from '$lib/components/TextareaField.svelte';
 	import ReconstitutionCalculator from '$lib/components/peptides/ReconstitutionCalculator.svelte';
 	import { todayIso } from '$lib/utils/todayIso';
-	import { PEPTIDE_CATEGORIES, ROUTE_LABELS, categoryLabel, formatDose } from '$lib/utils/peptides';
+	import { containerConcentrationMgMl, mcgPerActuation, actuationsPerContainer } from '$lib/utils/delivery';
+	import {
+		ADMIN_ROUTES,
+		CONTAINER_FORM_LABELS,
+		PEPTIDE_CATEGORIES,
+		categoryLabel,
+		formatDose,
+		type ContainerForm
+	} from '$lib/utils/peptides';
 	import { FREQUENCY_LABELS, weekdayMaskLabel, type Frequency } from '$lib/utils/peptideSchedule';
 	import type { PageData } from './$types';
 
@@ -83,16 +92,33 @@
 	// --- Vial modal ---
 	let vialOpen = $state(false);
 	let vPeptideId = $state<number | null>(null);
+	let vForm = $state<ContainerForm>('vial');
 	let vVialMg = $state<number | null>(null);
 	let vWaterMl = $state<number | null>(null);
+	let vConcentrationMgMl = $state<number | null>(null);
+	let vActuationVolumeUl = $state<number | null>(null);
+	let vPrimingActuations = $state<number | null>(null);
+	let vUnitCount = $state<number | null>(null);
+	let vUnitMassMcg = $state<number | null>(null);
 	let vRecon = $state('');
 	let vExpires = $state('');
 	let vNotes = $state('');
 	let vError = $state('');
+	// Serum/capsules aren't wired up yet — topical/oral land with their own phase.
+	const VIAL_FORMS: ContainerForm[] = ['vial', 'nasal_spray', 'patches'];
 	function newVial() {
-		vPeptideId = data.peptides[0]?.id ?? null; vVialMg = null; vWaterMl = null; vRecon = ''; vExpires = ''; vNotes = ''; vError = '';
+		vPeptideId = data.peptides[0]?.id ?? null; vForm = 'vial'; vVialMg = null; vWaterMl = null;
+		vConcentrationMgMl = null; vActuationVolumeUl = null; vPrimingActuations = null;
+		vUnitCount = null; vUnitMassMcg = null;
+		vRecon = ''; vExpires = ''; vNotes = ''; vError = '';
 		vialOpen = true;
 	}
+	// Effective mg/mL, whichever way it was entered — direct or derived from powder + volume.
+	const vConcentration = $derived(containerConcentrationMgMl({ concentrationMgMl: vConcentrationMgMl, vialMg: vVialMg, bacWaterMl: vWaterMl }));
+	const vMcgPerSpray = $derived(vConcentration != null && vActuationVolumeUl ? mcgPerActuation(vConcentration, vActuationVolumeUl) : null);
+	const vBottleLife = $derived(
+		vWaterMl && vActuationVolumeUl ? actuationsPerContainer(vWaterMl, vActuationVolumeUl, vPrimingActuations ?? 0) : null
+	);
 
 	function closeOn(setter: () => void) {
 		return () => {
@@ -221,7 +247,14 @@
 						<div class="flex items-center gap-3 px-4 py-3">
 							<div class="flex-1 min-w-0">
 								<p class="text-sm font-medium text-[var(--color-text)] truncate {v.depleted ? 'opacity-50 line-through' : ''}">
-									{v.peptideName} · {v.vialMg} mg{#if v.bacWaterMl} in {v.bacWaterMl} mL{/if}
+									{v.peptideName} ·
+									{#if v.form === 'nasal_spray'}
+										{CONTAINER_FORM_LABELS.nasal_spray}{#if containerConcentrationMgMl(v) != null} · {Math.round(containerConcentrationMgMl(v)! * 100) / 100} mg/mL{/if}{#if v.actuationVolumeUl} · {v.actuationVolumeUl} µL/spray{/if}
+									{:else if v.form === 'patches'}
+										{CONTAINER_FORM_LABELS.patches}{#if v.unitMassMcg} · {formatDose(v.unitMassMcg)}/patch{/if}{#if v.unitCount} · {v.unitCount} in box{/if}
+									{:else}
+										{v.vialMg} mg{#if v.bacWaterMl} in {v.bacWaterMl} mL{/if}
+									{/if}
 								</p>
 								<p class="text-xs text-[var(--color-text-muted)]">
 									{v.dosesLogged} dose{v.dosesLogged === 1 ? '' : 's'} logged{#if v.expiresAt} · expires {v.expiresAt}{/if}
@@ -288,8 +321,7 @@
 					<label for="pr-route" class="block text-sm font-medium text-[var(--color-text)] mb-1.5">Route</label>
 					<select id="pr-route" name="route" bind:value={prRoute} class={inputClass}>
 						<option value="">—</option>
-						<option value="subq">{ROUTE_LABELS.subq}</option>
-						<option value="im">{ROUTE_LABELS.im}</option>
+						{#each ADMIN_ROUTES as r (r.value)}<option value={r.value}>{r.label}</option>{/each}
 					</select>
 				</div>
 			</div>
@@ -347,36 +379,76 @@
 	</Modal>
 
 	<!-- Vial modal -->
-	<Modal bind:open={vialOpen} title="Add vial">
+	<Modal bind:open={vialOpen} title={`Add ${CONTAINER_FORM_LABELS[vForm].toLowerCase()}`}>
 		<form method="POST" action="?/saveVial" class="space-y-4" use:enhance={closeOn(() => (vialOpen = false))}>
+			<input type="hidden" name="form" value={vForm} />
 			<div>
 				<label for="v-pep" class="block text-sm font-medium text-[var(--color-text)] mb-1.5">Peptide</label>
 				<select id="v-pep" name="peptideId" bind:value={vPeptideId} class={inputClass}>
 					{#each data.peptides as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
 				</select>
 			</div>
-			<div class="grid grid-cols-2 gap-3">
-				<NumberField label="Vial size" name="vialMg" bind:value={vVialMg} decimalText suffix="mg" />
-				<NumberField label="Water added" name="bacWaterMl" bind:value={vWaterMl} decimalText suffix="mL" />
+			<div class="flex gap-1.5">
+				{#each VIAL_FORMS as f (f)}
+					<Chip selected={vForm === f} onclick={() => (vForm = f)}>{CONTAINER_FORM_LABELS[f]}</Chip>
+				{/each}
 			</div>
-			<div class="grid grid-cols-2 gap-3">
-				<div>
-					<label for="v-recon" class="block text-sm font-medium text-[var(--color-text)] mb-1.5">Reconstituted</label>
-					<input id="v-recon" type="date" name="reconstitutedAt" bind:value={vRecon} class={inputClass} />
+			{#if vForm === 'vial'}
+				<div class="grid grid-cols-2 gap-3">
+					<NumberField label="Vial size" name="vialMg" bind:value={vVialMg} decimalText suffix="mg" />
+					<NumberField label="Water added" name="bacWaterMl" bind:value={vWaterMl} decimalText suffix="mL" />
 				</div>
+				{#if vVialMg && vWaterMl}
+					<div class="rounded-[var(--radius-md)] bg-[var(--color-surface-alt)] px-3.5 py-2.5 text-xs text-[var(--color-text-muted)] tabular-nums">
+						Concentration: {Math.round((vVialMg * 1000) / vWaterMl)} mcg/mL
+					</div>
+				{/if}
+			{:else if vForm === 'nasal_spray'}
+				<NumberField label="Concentration (optional)" name="concentrationMgMl" bind:value={vConcentrationMgMl} decimalText suffix="mg/mL" />
+				<p class="text-xs text-[var(--color-text-muted)] -mt-2">
+					Or leave blank and enter powder + volume below to calculate it, same as a reconstituted vial.
+				</p>
+				<div class="grid grid-cols-2 gap-3">
+					<NumberField label="Powder (optional)" name="vialMg" bind:value={vVialMg} decimalText suffix="mg" />
+					<NumberField label="Volume" name="bacWaterMl" bind:value={vWaterMl} decimalText suffix="mL" />
+				</div>
+				<div class="grid grid-cols-2 gap-3">
+					<NumberField label="Spray volume" name="actuationVolumeUl" bind:value={vActuationVolumeUl} decimalText suffix="µL" />
+					<NumberField label="Priming sprays" name="primingActuations" bind:value={vPrimingActuations} suffix="sprays" />
+				</div>
+				{#if vMcgPerSpray != null || vBottleLife != null}
+					<div class="rounded-[var(--radius-md)] bg-[var(--color-surface-alt)] px-3.5 py-2.5 text-xs text-[var(--color-text-muted)] tabular-nums space-y-0.5">
+						{#if vConcentration != null}<p>Concentration: {Math.round(vConcentration * 100) / 100} mg/mL</p>{/if}
+						{#if vMcgPerSpray != null}<p>{Math.round(vMcgPerSpray)} mcg/spray</p>{/if}
+						{#if vBottleLife != null}<p>{vBottleLife.total} sprays total · {vBottleLife.usable} usable after priming</p>{/if}
+					</div>
+				{/if}
+			{:else if vForm === 'patches'}
+				<div class="grid grid-cols-2 gap-3">
+					<NumberField label="Patches in box" name="unitCount" bind:value={vUnitCount} suffix="patches" />
+					<NumberField label="Strength per patch" name="unitMassMcg" bind:value={vUnitMassMcg} decimalText suffix="mcg" />
+				</div>
+				{#if vUnitCount && vUnitMassMcg}
+					<div class="rounded-[var(--radius-md)] bg-[var(--color-surface-alt)] px-3.5 py-2.5 text-xs text-[var(--color-text-muted)] tabular-nums">
+						{formatDose(vUnitCount * vUnitMassMcg)} total in box
+					</div>
+				{/if}
+			{/if}
+			<div class="grid grid-cols-2 gap-3">
+				{#if vForm !== 'patches'}
+					<div>
+						<label for="v-recon" class="block text-sm font-medium text-[var(--color-text)] mb-1.5">Reconstituted</label>
+						<input id="v-recon" type="date" name="reconstitutedAt" bind:value={vRecon} class={inputClass} />
+					</div>
+				{/if}
 				<div>
 					<label for="v-exp" class="block text-sm font-medium text-[var(--color-text)] mb-1.5">Expires</label>
 					<input id="v-exp" type="date" name="expiresAt" bind:value={vExpires} class={inputClass} />
 				</div>
 			</div>
-			{#if vVialMg && vWaterMl}
-				<div class="rounded-[var(--radius-md)] bg-[var(--color-surface-alt)] px-3.5 py-2.5 text-xs text-[var(--color-text-muted)] tabular-nums">
-					Concentration: {Math.round((vVialMg * 1000) / vWaterMl)} mcg/mL
-				</div>
-			{/if}
 			<TextareaField label="Notes" name="notes" bind:value={vNotes} rows={2} placeholder="Optional — batch, source, etc." />
 			{#if vError}<p class="text-sm text-[var(--color-danger)]">{vError}</p>{/if}
-			<Button type="submit" variant="primary" full class="w-full">Save vial</Button>
+			<Button type="submit" variant="primary" full class="w-full">Save {CONTAINER_FORM_LABELS[vForm].toLowerCase()}</Button>
 		</form>
 	</Modal>
 {/if}

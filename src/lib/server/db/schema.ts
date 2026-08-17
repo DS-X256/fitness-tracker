@@ -390,7 +390,9 @@ export const progressPhotos = sqliteTable('progress_photos', {
 export const peptides = sqliteTable('peptides', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
 	userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-	/** Encrypted JSON payload: { name, category, vialMg, notes }. AAD-bound to `${userId}:peptides`. */
+	/** Encrypted JSON payload: { name, category, vialMg, notes }. AAD-bound to `${userId}:peptides`.
+	 *  vialMg here is display-only reference metadata on the compound itself (e.g. "usually comes as a 5mg
+	 *  vial") — the mg/route-agnostic math always runs off a specific peptideVials row, never this field. */
 	enc: text('enc').notNull(),
 	/** Cleartext lifecycle flag so the active catalog lists without decrypting; contents stay in enc. */
 	active: integer('active', { mode: 'boolean' }).notNull().default(true),
@@ -406,7 +408,8 @@ export const peptideProtocols = sqliteTable('peptide_protocols', {
 	userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
 	peptideId: integer('peptide_id').notNull().references(() => peptides.id, { onDelete: 'cascade' }),
 	/** Encrypted JSON: { doseMcg, route, frequency, weekdayMask, timeOfDay, cycleWeeksOn, cycleWeeksOff,
-	 *  endDate, rotateSites, notes }. AAD-bound to `${userId}:peptide_protocols`. */
+	 *  endDate, rotateSites, notes }. AAD-bound to `${userId}:peptide_protocols`. `route` is any AdminRoute,
+	 *  not just injection — see $lib/utils/peptides.ts. */
 	enc: text('enc').notNull(),
 	/** Cleartext so protocols can be ordered/filtered by start without decrypting; low-sensitivity alone. */
 	startDate: text('start_date').notNull(),
@@ -418,13 +421,22 @@ export const peptideProtocols = sqliteTable('peptide_protocols', {
 	index('peptide_protocols_peptide_idx').on(t.peptideId)
 ]);
 
-/** Inventory: one reconstituted vial. Powers the reconstitution calculator, BAC-water expiry alerts and
- *  "running low". Contents (mg powder, mL water, dates) are in `enc`; only the depleted flag is cleartext. */
+/** Inventory: one container of peptide, of whatever physical form. Powers the reconstitution/delivery
+ *  calculators, expiry alerts and "running low". Contents are in `enc`; only the depleted flag is
+ *  cleartext. Table name kept as peptideVials — renaming would cost a migration for no behavioral gain —
+ *  but a row's `form` need not be a vial at all; nasal_spray/serum/capsules/patches rows live here too. */
 export const peptideVials = sqliteTable('peptide_vials', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
 	userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
 	peptideId: integer('peptide_id').notNull().references(() => peptides.id, { onDelete: 'cascade' }),
-	/** Encrypted JSON: { vialMg, bacWaterMl, reconstitutedAt, expiresAt, notes }. AAD `${userId}:peptide_vials`. */
+	/** Encrypted JSON: { vialMg, bacWaterMl, reconstitutedAt, expiresAt, notes, form, concentrationMgMl,
+	 *  percentWv, actuationVolumeUl, primingActuations, unitCount, unitMassMcg }. AAD `${userId}:peptide_vials`.
+	 *  `form` defaults to 'vial' when absent (rows written before multi-route support) — see
+	 *  repositories/peptideVials.ts decode(). vialMg/bacWaterMl are 'vial'-form's own fields but are reused
+	 *  as an optional self-mix path for nasal_spray too (mg powder / mL diluent ⇒ mg/mL), mirroring the
+	 *  reconstitution math above; concentrationMgMl/percentWv are the direct-entry alternative for
+	 *  pre-made liquids. actuationVolumeUl + primingActuations size a spray/pump/drop container
+	 *  (see $lib/utils/delivery.ts); unitCount/unitMassMcg describe whole-unit containers (capsules, patches). */
 	enc: text('enc').notNull(),
 	depleted: integer('depleted', { mode: 'boolean' }).notNull().default(false),
 	createdAt: timestamp('created_at')
@@ -441,7 +453,13 @@ export const peptideDoses = sqliteTable('peptide_doses', {
 	protocolId: integer('protocol_id').references(() => peptideProtocols.id, { onDelete: 'set null' }),
 	vialId: integer('vial_id').references(() => peptideVials.id, { onDelete: 'set null' }),
 	date: text('date').notNull(),
-	/** Encrypted JSON: { doseMcg, site, route, time, unitsShown, notes }. AAD `${userId}:peptide_doses`. */
+	/** Encrypted JSON: { doseMcg, site, route, time, measureCount, measureUnit, kind, notes }. AAD
+	 *  `${userId}:peptide_doses`. doseMcg is always the canonical, cross-comparable figure; measureCount +
+	 *  measureUnit separately preserve what the user actually did (e.g. "2 sprays") — see
+	 *  $lib/utils/delivery.ts. `kind: 'prime'` marks a priming actuation that drew down a container without
+	 *  being an actual dose, so it's excluded from adherence (see repositories/peptideDoses.ts). Rows written
+	 *  before multi-route support have neither field and decode as measureUnit 'unit' / kind 'dose', with
+	 *  measureCount falling back to the older `unitsShown` key — see decode(). */
 	enc: text('enc').notNull(),
 	createdAt: timestamp('created_at')
 }, (t) => [
