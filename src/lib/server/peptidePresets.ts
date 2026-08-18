@@ -1,5 +1,5 @@
 import { db } from '$lib/server/db';
-import { peptides } from '$lib/server/db/schema';
+import { peptides, users } from '$lib/server/db/schema';
 import { eq } from 'drizzle-orm';
 import { decryptJson, encryptJson, fieldEncryptionAvailable } from '$lib/server/crypto/fieldCrypto';
 import type { PeptideCategory } from '$lib/utils/peptides';
@@ -44,4 +44,15 @@ export async function seedPeptidesForUser(userId: number): Promise<number> {
 	}));
 	if (toInsert.length) await db.insert(peptides).values(toInsert);
 	return toInsert.length;
+}
+
+/** Backfills any new preset compounds (e.g. Melanotan) for every existing account, not just on an
+ *  empty catalog. Mirrors seedPresetsForAllUsers() in presets.ts. No-op per user when encryption
+ *  isn't configured. Safe to run on every boot — seedPeptidesForUser is idempotent. */
+export async function seedPeptidePresetsForAllUsers(): Promise<void> {
+	if (!fieldEncryptionAvailable()) return;
+	const allUsers = await db.select({ id: users.id }).from(users);
+	for (const user of allUsers) {
+		await seedPeptidesForUser(user.id);
+	}
 }

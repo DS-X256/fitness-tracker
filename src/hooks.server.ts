@@ -2,6 +2,7 @@ import type { Handle } from '@sveltejs/kit';
 import { redirect } from '@sveltejs/kit';
 import { SESSION_COOKIE, getSessionUser } from '$lib/server/auth';
 import { seedPresetsForAllUsers, seedCatalog } from '$lib/server/presets';
+import { seedPeptidePresetsForAllUsers } from '$lib/server/peptidePresets';
 import { ensureAdminExists } from '$lib/server/repositories/admin';
 
 const PUBLIC_PATHS = new Set(['/login', '/signup', '/manifest.webmanifest', '/service-worker.js']);
@@ -12,6 +13,11 @@ seedPresetsForAllUsers().catch((err) => console.error('Failed to seed presets fo
 
 // Seeds the shared OFF product catalog once at startup (global, idempotent). Fire-and-forget.
 seedCatalog().catch((err) => console.error('Failed to seed product catalog', err));
+
+// Backfills new peptide catalog presets (e.g. Melanotan) for accounts that already have peptides
+// logged, since the per-request seed only fires on an empty catalog. No-op if encryption isn't
+// configured. Fire-and-forget.
+seedPeptidePresetsForAllUsers().catch((err) => console.error('Failed to seed peptide presets for existing users', err));
 
 // Ensures at least one admin exists (promotes the earliest account if none). Idempotent once an admin
 // exists, so it's a no-op on every subsequent boot. Fire-and-forget.
