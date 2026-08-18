@@ -75,7 +75,10 @@
 					{#each data.due as d (d.protocolId)}
 						<div class="flex items-center gap-3 px-4 py-3">
 							<div class="flex-1 min-w-0">
-								<p class="text-sm font-medium text-[var(--color-text)] truncate">{d.peptideName}</p>
+								<p class="text-sm font-medium text-[var(--color-text)] truncate">
+									{d.peptideName}
+									{#if d.loading}<span class="ml-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-accent)] align-middle">Loading</span>{/if}
+								</p>
 								<p class="text-xs text-[var(--color-text-muted)] tabular-nums">
 									{formatDose(d.doseMcg)}{#if d.timeOfDay} · {d.timeOfDay}{/if}
 								</p>

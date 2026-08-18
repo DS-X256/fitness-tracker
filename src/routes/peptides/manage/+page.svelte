@@ -19,7 +19,7 @@
 		formatDose,
 		type ContainerForm
 	} from '$lib/utils/peptides';
-	import { FREQUENCY_LABELS, weekdayMaskLabel, type Frequency } from '$lib/utils/peptideSchedule';
+	import { FREQUENCY_LABELS, isLoadingPhaseOn, loadingEndDate, weekdayMaskLabel, type Frequency } from '$lib/utils/peptideSchedule';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -69,18 +69,24 @@
 	let prOff = $state<number | null>(null);
 	let prRotate = $state(true);
 	let prNotes = $state('');
+	let prLoading = $state(false);
+	let prLoadDose = $state<number | null>(null);
+	let prLoadDays = $state<number | null>(null);
 	let prError = $state('');
 	function newProtocol() {
 		prId = null; prPeptideId = data.peptides[0]?.id ?? null; prDose = null; prRoute = ''; prFreq = 'daily';
 		prDays = new Set(); prPerWeek = null; prTime = ''; prStart = todayIso(); prEnd = '';
-		prOn = null; prOff = null; prRotate = true; prNotes = ''; prError = '';
+		prOn = null; prOff = null; prRotate = true; prNotes = '';
+		prLoading = false; prLoadDose = null; prLoadDays = null; prError = '';
 		protoOpen = true;
 	}
 	function editProtocol(p: PageData['protocols'][number]) {
 		prId = p.id; prPeptideId = p.peptideId; prDose = p.doseMcg; prRoute = p.route ?? ''; prFreq = p.frequency;
 		prDays = new Set(WEEKDAYS.map((w) => w.d).filter((d) => ((p.weekdayMask ?? 0) & (1 << d)) !== 0));
 		prPerWeek = p.perWeek; prTime = p.timeOfDay ?? ''; prStart = p.startDate; prEnd = p.endDate ?? '';
-		prOn = p.cycleWeeksOn; prOff = p.cycleWeeksOff; prRotate = p.rotateSites; prNotes = p.notes ?? ''; prError = '';
+		prOn = p.cycleWeeksOn; prOff = p.cycleWeeksOff; prRotate = p.rotateSites; prNotes = p.notes ?? '';
+		prLoading = p.loadingDoseMcg != null && p.loadingDurationDays != null;
+		prLoadDose = p.loadingDoseMcg ?? null; prLoadDays = p.loadingDurationDays ?? null; prError = '';
 		protoOpen = true;
 	}
 	function toggleDay(d: number) {
@@ -208,6 +214,15 @@
 									{#if p.cycleWeeksOn && p.cycleWeeksOff} · {p.cycleWeeksOn}w on / {p.cycleWeeksOff}w off{/if}
 									{#if !p.active} · paused{/if}
 								</p>
+								{#if p.loadingDoseMcg != null && p.loadingDurationDays != null}
+									<p class="text-xs text-[var(--color-accent)] mt-0.5">
+										{#if isLoadingPhaseOn(p.startDate, { doseMcg: p.loadingDoseMcg, durationDays: p.loadingDurationDays }, todayIso())}
+											Loading {formatDose(p.loadingDoseMcg)} through {loadingEndDate(p.startDate, { doseMcg: p.loadingDoseMcg, durationDays: p.loadingDurationDays })}
+										{:else}
+											Loading phase done · maintenance {formatDose(p.doseMcg)}
+										{/if}
+									</p>
+								{/if}
 							</div>
 							<button type="button" aria-label="Edit" onclick={() => editProtocol(p)} class="h-8 w-8 flex items-center justify-center rounded-full text-[var(--color-text-muted)] hover:bg-[var(--color-surface-alt)]">
 								<Icon name="edit" size={16} />
@@ -354,6 +369,25 @@
 					<label for="pr-time" class="block text-sm font-medium text-[var(--color-text)] mb-1.5">Time of day</label>
 					<input id="pr-time" name="timeOfDay" bind:value={prTime} placeholder="e.g. AM" class={inputClass} />
 				</div>
+			</div>
+			<div class="rounded-[var(--radius-md)] border border-[var(--color-border)] px-3.5 py-2.5">
+				<label class="flex items-center gap-2.5 text-sm text-[var(--color-text)]">
+					<input type="checkbox" bind:checked={prLoading} class="h-4 w-4 accent-[var(--color-accent)]" />
+					Use a loading phase
+				</label>
+				{#if prLoading}
+					<p class="text-xs text-[var(--color-text-muted)] mt-1.5 mb-3">
+						A different dose for the first stretch of the protocol, on the same schedule above, before it drops to the
+						maintenance dose entered up top.
+					</p>
+					<div class="grid grid-cols-2 gap-3">
+						<NumberField label="Loading dose" name="loadingDoseMcg" bind:value={prLoadDose} decimalText suffix="mcg" />
+						<NumberField label="For" name="loadingDurationDays" bind:value={prLoadDays} suffix="days" />
+					</div>
+				{:else}
+					<input type="hidden" name="loadingDoseMcg" value="" />
+					<input type="hidden" name="loadingDurationDays" value="" />
+				{/if}
 			</div>
 			<details class="rounded-[var(--radius-md)] border border-[var(--color-border)] px-3.5 py-2.5">
 				<summary class="text-sm text-[var(--color-text-muted)] cursor-pointer select-none">Cycle & advanced</summary>

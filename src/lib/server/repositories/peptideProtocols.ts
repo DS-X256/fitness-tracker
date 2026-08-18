@@ -4,7 +4,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import { decryptJson, encryptJson } from '$lib/server/crypto/fieldCrypto';
 import { isValidIsoDate } from '$lib/utils/isoDate';
 import { isAdminRoute, type AdminRoute } from '$lib/utils/peptides';
-import { isFrequency, type Frequency, type ProtocolSchedule } from '$lib/utils/peptideSchedule';
+import { isFrequency, type Frequency, type LoadingPhase, type ProtocolSchedule } from '$lib/utils/peptideSchedule';
 
 // Protocol templates (the "plan" side). Schedule/dose detail is encrypted in `enc`; startDate + active
 // are cleartext so the list can be ordered/filtered without decrypting.
@@ -23,6 +23,10 @@ type ProtocolEnc = {
 	endDate: string | null;
 	rotateSites: boolean;
 	notes: string | null;
+	/** Optional front-loaded stretch at the start of the protocol — same schedule, different dose, for
+	 *  the first loadingDurationDays days. Both null together mean "no loading phase". */
+	loadingDoseMcg: number | null;
+	loadingDurationDays: number | null;
 };
 
 export type Protocol = {
@@ -48,6 +52,8 @@ export type ProtocolInput = {
 	cycleWeeksOff?: number | null;
 	rotateSites?: boolean;
 	notes?: string | null;
+	loadingDoseMcg?: number | null;
+	loadingDurationDays?: number | null;
 };
 
 function decode(row: typeof peptideProtocols.$inferSelect): Protocol {
@@ -74,6 +80,13 @@ export function toSchedule(p: Protocol): ProtocolSchedule {
 		cycleWeeksOn: p.cycleWeeksOn,
 		cycleWeeksOff: p.cycleWeeksOff
 	};
+}
+
+/** The loading-phase subset for peptideSchedule's effectiveDoseMcg/isLoadingPhaseOn/loadingEndDate.
+ *  Null when the protocol has no loading phase configured. */
+export function toLoadingPhase(p: Protocol): LoadingPhase | null {
+	if (p.loadingDoseMcg == null || p.loadingDurationDays == null) return null;
+	return { doseMcg: p.loadingDoseMcg, durationDays: p.loadingDurationDays };
 }
 
 function posIntOrNull(v: number | null | undefined, max: number, label: string): number | null {
@@ -108,6 +121,17 @@ function sanitize(input: ProtocolInput): { enc: ProtocolEnc; startDate: string }
 	const off = posIntOrNull(input.cycleWeeksOff, 104, 'Weeks off');
 	if ((on == null) !== (off == null)) throw new Error('Set both weeks-on and weeks-off, or neither');
 
+	const loadingDurationDays = posIntOrNull(input.loadingDurationDays, 365, 'Loading phase length');
+	let loadingDoseMcg: number | null = null;
+	if (loadingDurationDays != null) {
+		if (input.loadingDoseMcg == null || !Number.isFinite(input.loadingDoseMcg) || input.loadingDoseMcg <= 0 || input.loadingDoseMcg > 100_000) {
+			throw new Error('Enter a loading-phase dose (mcg)');
+		}
+		loadingDoseMcg = Math.round(input.loadingDoseMcg * 1000) / 1000;
+	} else if (input.loadingDoseMcg != null) {
+		throw new Error('Set a loading-phase length, or clear the loading dose');
+	}
+
 	return {
 		startDate: input.startDate,
 		enc: {
@@ -123,7 +147,9 @@ function sanitize(input: ProtocolInput): { enc: ProtocolEnc; startDate: string }
 			cycleWeeksOff: off,
 			endDate: input.endDate || null,
 			rotateSites: input.rotateSites ?? true,
-			notes: input.notes?.trim() || null
+			notes: input.notes?.trim() || null,
+			loadingDoseMcg,
+			loadingDurationDays
 		}
 	};
 }

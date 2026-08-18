@@ -29,6 +29,15 @@ export type ProtocolSchedule = {
 	cycleWeeksOff?: number | null;
 };
 
+/** An optional higher/lower front-loaded stretch at the start of a protocol (e.g. a heavier dose for
+ *  the first N days before dropping to the ongoing maintenance dose) — the schedule (frequency/weekday/
+ *  perWeek) stays whatever the protocol already specifies; only the dose amount changes for those days.
+ *  `durationDays` is measured from the protocol's startDate, day 0 inclusive. */
+export type LoadingPhase = {
+	doseMcg: number;
+	durationDays: number;
+};
+
 const WEEKDAY_ABBR = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
 /** Days from `fromIso` to `toIso` (built at local noon to sidestep DST edges, like shiftIsoDate). */
@@ -101,6 +110,33 @@ export function isDueOn(s: ProtocolSchedule, date: string): boolean {
 		default:
 			return false;
 	}
+}
+
+/** Is `date` still inside the loading window (day 0 = startDate)? False when no loading phase is
+ *  configured, or once `durationDays` has elapsed. Doesn't check whether a dose is actually due on
+ *  `date` — combine with isDueOn for that. */
+export function isLoadingPhaseOn(startDate: string, loading: LoadingPhase | null | undefined, date: string): boolean {
+	if (!loading || loading.durationDays <= 0) return false;
+	const elapsed = daysBetween(startDate, date);
+	return elapsed >= 0 && elapsed < loading.durationDays;
+}
+
+/** The ISO date the loading phase hands off to maintenance dosing (the first non-loading day), or
+ *  null when no loading phase is configured. */
+export function loadingEndDate(startDate: string, loading: LoadingPhase | null | undefined): string | null {
+	if (!loading || loading.durationDays <= 0) return null;
+	return shiftIsoDate(startDate, loading.durationDays);
+}
+
+/** The dose that actually applies on `date`: the loading dose while isLoadingPhaseOn, otherwise the
+ *  protocol's own maintenance dose. */
+export function effectiveDoseMcg(
+	maintenanceDoseMcg: number,
+	startDate: string,
+	loading: LoadingPhase | null | undefined,
+	date: string
+): number {
+	return isLoadingPhaseOn(startDate, loading, date) ? loading!.doseMcg : maintenanceDoseMcg;
 }
 
 /** Count of scheduled doses across [fromIso, toIso] inclusive — the denominator for adherence.
