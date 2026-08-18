@@ -22,7 +22,9 @@ export const PRESET_PEPTIDES: { name: string; category: PeptideCategory }[] = [
 	{ name: 'Sermorelin', category: 'gh_secretagogue' },
 	{ name: 'Tesamorelin', category: 'gh_secretagogue' },
 	{ name: 'PT-141', category: 'other' },
-	{ name: 'AOD-9604', category: 'other' }
+	{ name: 'AOD-9604', category: 'other' },
+	{ name: 'Melanotan 1', category: 'other' },
+	{ name: 'Melanotan 2', category: 'other' }
 ];
 
 /** Inserts any preset compounds the user doesn't already have (matched by name, case-insensitive).
