@@ -8,7 +8,7 @@
 	import StatCard from '$lib/components/StatCard.svelte';
 	import AdherenceCalendar from '$lib/components/peptides/AdherenceCalendar.svelte';
 	import LogDoseModal from '$lib/components/peptides/LogDoseModal.svelte';
-	import { formatDose, siteLabel } from '$lib/utils/peptides';
+	import { formatDose, siteLabel, MEASURE_UNIT_LABELS } from '$lib/utils/peptides';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -128,11 +128,11 @@
 						<div class="flex items-center gap-3 px-4 py-3">
 							<div class="mt-0.5 shrink-0 text-[var(--color-danger)]"><Icon name="alert" size={18} /></div>
 							<div class="flex-1 min-w-0 text-sm">
-								<p class="text-[var(--color-text)] truncate">{v.peptideName} · {v.vialMg} mg</p>
+								<p class="text-[var(--color-text)] truncate">{v.peptideName}{#if v.vialMg} · {v.vialMg} mg{/if}</p>
 								<p class="text-xs text-[var(--color-text-muted)]">
 									{#if v.expiry === 'expired'}Expired {v.expiresAt}{:else if v.expiry === 'soon'}Expires {v.expiresAt}{/if}
 									{#if (v.expiry) && v.low} · {/if}
-									{#if v.low}~{v.dosesLeft} doses left{/if}
+									{#if v.low}~{v.dosesLeft} {MEASURE_UNIT_LABELS[v.unit]} left{#if v.daysLeft != null} · ~{v.daysLeft}d supply{/if}{/if}
 								</p>
 							</div>
 						</div>
@@ -154,7 +154,7 @@
 									<span class="text-[var(--color-text-muted)] tabular-nums"> · {formatDose(dose.doseMcg)}</span>
 								</p>
 								<p class="text-xs text-[var(--color-text-muted)] tabular-nums">
-									{fmtDate(dose.date)}{#if dose.site} · {siteLabel(dose.site)}{/if}
+									{fmtDate(dose.date)}{#if dose.site} · {siteLabel(dose.site)}{/if}{#if dose.kind !== 'dose'} · {dose.kind === 'prime' ? 'Prime' : 'Removed'}{/if}
 								</p>
 							</div>
 							<form method="POST" action="?/deleteDose" use:enhance>
@@ -193,7 +193,7 @@
 		bind:open={logOpen}
 		peptides={data.peptides}
 		vials={data.activeVials}
-		suggestedSite={data.suggestedSite}
+		recentSites={data.siteHistory}
 		initial={logInitial}
 	/>
 {/if}

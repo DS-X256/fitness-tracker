@@ -3,18 +3,29 @@ import { peptideVials, peptideDoses } from '$lib/server/db/schema';
 import { and, asc, eq, sql } from 'drizzle-orm';
 import { decryptJson, encryptJson } from '$lib/server/crypto/fieldCrypto';
 import { isValidIsoDate } from '$lib/utils/isoDate';
+import { isContainerForm, type ContainerForm } from '$lib/utils/peptides';
 
-// Inventory: reconstituted vials. Contents (mg, water, dates, notes) are encrypted in `enc`; only the
-// depleted flag is cleartext so the active list filters without decrypting.
+// Inventory: one container of peptide. `form` defaults to 'vial' (the original, and for a long time
+// only, shape) — reconstituted powder drawn on a syringe. Everything else is additive: a nasal_spray/
+// serum container reuses vialMg+bacWaterMl as an optional self-mix path (mg powder / mL diluent), or
+// takes concentrationMgMl/percentWv directly for a pre-made liquid; capsules/patches use unitCount +
+// unitMassMcg instead. Contents are encrypted in `enc`; only the depleted flag is cleartext.
 
 const aad = (userId: number) => `${userId}:peptide_vials`;
 
 type VialEnc = {
-	vialMg: number;
+	vialMg: number | null;
 	bacWaterMl: number | null;
 	reconstitutedAt: string | null;
 	expiresAt: string | null;
 	notes: string | null;
+	form: ContainerForm;
+	concentrationMgMl: number | null;
+	percentWv: number | null;
+	actuationVolumeUl: number | null;
+	primingActuations: number | null;
+	unitCount: number | null;
+	unitMassMcg: number | null;
 };
 
 export type Vial = {
@@ -28,43 +39,110 @@ export type VialWithUsage = Vial & { dosesLogged: number };
 
 export type VialInput = {
 	peptideId: number;
-	vialMg: number;
+	form?: ContainerForm;
+	vialMg?: number | null;
 	bacWaterMl?: number | null;
 	reconstitutedAt?: string | null;
 	expiresAt?: string | null;
 	notes?: string | null;
+	concentrationMgMl?: number | null;
+	percentWv?: number | null;
+	actuationVolumeUl?: number | null;
+	primingActuations?: number | null;
+	unitCount?: number | null;
+	unitMassMcg?: number | null;
 };
 
 function decode(row: typeof peptideVials.$inferSelect): Vial {
-	const enc = decryptJson<VialEnc>(row.enc, aad(row.userId));
+	const enc = decryptJson<Partial<VialEnc> & { vialMg?: number | null }>(row.enc, aad(row.userId));
 	return {
 		id: row.id,
 		peptideId: row.peptideId,
 		depleted: row.depleted,
 		createdAt: row.createdAt,
-		...enc
+		vialMg: enc.vialMg ?? null,
+		bacWaterMl: enc.bacWaterMl ?? null,
+		reconstitutedAt: enc.reconstitutedAt ?? null,
+		expiresAt: enc.expiresAt ?? null,
+		notes: enc.notes ?? null,
+		form: enc.form ?? 'vial',
+		concentrationMgMl: enc.concentrationMgMl ?? null,
+		percentWv: enc.percentWv ?? null,
+		actuationVolumeUl: enc.actuationVolumeUl ?? null,
+		primingActuations: enc.primingActuations ?? null,
+		unitCount: enc.unitCount ?? null,
+		unitMassMcg: enc.unitMassMcg ?? null
 	};
 }
 
+function positiveOrNull(v: number | null | undefined, max: number, label: string): number | null {
+	if (v == null) return null;
+	if (!Number.isFinite(v) || v <= 0 || v > max) throw new Error(`${label} is out of range`);
+	return Math.round(v * 1000) / 1000;
+}
+
 function sanitize(input: VialInput): VialEnc {
-	if (!Number.isFinite(input.vialMg) || input.vialMg <= 0 || input.vialMg > 1000) {
-		throw new Error('Vial size (mg) is out of range');
+	const form = isContainerForm(input.form) ? input.form : 'vial';
+
+	let vialMg: number | null;
+	if (form === 'vial') {
+		// The original, hard requirement: a vial-form container is defined by its powder mass.
+		if (!Number.isFinite(input.vialMg) || (input.vialMg as number) <= 0 || (input.vialMg as number) > 1000) {
+			throw new Error('Vial size (mg) is out of range');
+		}
+		vialMg = Math.round((input.vialMg as number) * 1000) / 1000;
+	} else {
+		// Other forms don't require a powder mass at all — vialMg/bacWaterMl are only the optional
+		// self-mix path here (see containerConcentrationMgMl in $lib/utils/delivery.ts).
+		vialMg = positiveOrNull(input.vialMg, 1000, 'Powder amount (mg)');
 	}
+
 	let bacWaterMl: number | null = null;
 	if (input.bacWaterMl != null) {
 		if (!Number.isFinite(input.bacWaterMl) || input.bacWaterMl <= 0 || input.bacWaterMl > 100) {
-			throw new Error('Water volume (mL) is out of range');
+			throw new Error('Volume (mL) is out of range');
 		}
 		bacWaterMl = Math.round(input.bacWaterMl * 100) / 100;
 	}
+
 	if (input.reconstitutedAt && !isValidIsoDate(input.reconstitutedAt)) throw new Error('Invalid reconstitution date');
 	if (input.expiresAt && !isValidIsoDate(input.expiresAt)) throw new Error('Invalid expiry date');
+
+	const concentrationMgMl = positiveOrNull(input.concentrationMgMl, 1000, 'Concentration (mg/mL)');
+	const percentWv = positiveOrNull(input.percentWv, 100, 'Concentration (% w/v)');
+	const actuationVolumeUl = positiveOrNull(input.actuationVolumeUl, 2000, 'Actuation volume (µL)');
+
+	let primingActuations: number | null = null;
+	if (input.primingActuations != null) {
+		if (!Number.isInteger(input.primingActuations) || input.primingActuations < 0 || input.primingActuations > 50) {
+			throw new Error('Priming actuations is out of range');
+		}
+		primingActuations = input.primingActuations;
+	}
+
+	let unitCount: number | null = null;
+	if (input.unitCount != null) {
+		if (!Number.isInteger(input.unitCount) || input.unitCount <= 0 || input.unitCount > 1000) {
+			throw new Error('Unit count is out of range');
+		}
+		unitCount = input.unitCount;
+	}
+
+	const unitMassMcg = positiveOrNull(input.unitMassMcg, 100_000, 'Mass per unit (mcg)');
+
 	return {
-		vialMg: Math.round(input.vialMg * 1000) / 1000,
+		vialMg,
 		bacWaterMl,
 		reconstitutedAt: input.reconstitutedAt || null,
 		expiresAt: input.expiresAt || null,
-		notes: input.notes?.trim() || null
+		notes: input.notes?.trim() || null,
+		form,
+		concentrationMgMl,
+		percentWv,
+		actuationVolumeUl,
+		primingActuations,
+		unitCount,
+		unitMassMcg
 	};
 }
 

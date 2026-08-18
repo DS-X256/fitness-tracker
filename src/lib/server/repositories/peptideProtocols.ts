@@ -3,7 +3,7 @@ import { peptideProtocols } from '$lib/server/db/schema';
 import { and, asc, eq } from 'drizzle-orm';
 import { decryptJson, encryptJson } from '$lib/server/crypto/fieldCrypto';
 import { isValidIsoDate } from '$lib/utils/isoDate';
-import { isInjectionRoute, type InjectionRoute } from '$lib/utils/peptides';
+import { isAdminRoute, type AdminRoute } from '$lib/utils/peptides';
 import { isFrequency, type Frequency, type ProtocolSchedule } from '$lib/utils/peptideSchedule';
 
 // Protocol templates (the "plan" side). Schedule/dose detail is encrypted in `enc`; startDate + active
@@ -13,7 +13,7 @@ const aad = (userId: number) => `${userId}:peptide_protocols`;
 
 type ProtocolEnc = {
 	doseMcg: number;
-	route: InjectionRoute | null;
+	route: AdminRoute | null;
 	frequency: Frequency;
 	weekdayMask: number | null;
 	perWeek: number | null;
@@ -37,7 +37,7 @@ export type Protocol = {
 export type ProtocolInput = {
 	peptideId: number;
 	doseMcg: number;
-	route?: InjectionRoute | null;
+	route?: AdminRoute | null;
 	frequency: Frequency;
 	weekdayMask?: number | null;
 	perWeek?: number | null;
@@ -112,7 +112,9 @@ function sanitize(input: ProtocolInput): { enc: ProtocolEnc; startDate: string }
 		startDate: input.startDate,
 		enc: {
 			doseMcg: Math.round(input.doseMcg * 1000) / 1000,
-			route: isInjectionRoute(input.route) ? input.route : null,
+			// Broad validator (any AdminRoute) — isInjectionRoute here previously silently dropped every
+			// non-injection route on write, the same bug fixed in repositories/peptideDoses.ts.
+			route: isAdminRoute(input.route) ? input.route : null,
 			frequency: input.frequency,
 			weekdayMask,
 			perWeek,
