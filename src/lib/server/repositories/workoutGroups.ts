@@ -1,6 +1,7 @@
 import { db } from '$lib/server/db';
-import { workoutGroups, workoutGroupMembers, workoutSessions, workoutSets, workoutPlans, users } from '$lib/server/db/schema';
+import { workoutGroups, workoutGroupMembers, workoutSessions, workoutSets, workoutPlans, planExercises, exercises, users } from '$lib/server/db/schema';
 import { createSession } from '$lib/server/repositories/workouts';
+import { findOrCreateExercise } from '$lib/server/repositories/exercises';
 import { todayIso } from '$lib/utils/todayIso';
 import { and, asc, desc, eq, ne, sql } from 'drizzle-orm';
 
@@ -118,9 +119,59 @@ export async function listPendingInvites(userId: number): Promise<PendingInvite[
 	);
 }
 
-/** Accepts an invite: creates the acceptor's own workout session (same date/plan as whoever
- *  started the group, so both sides land on the same workout), links it into the group, and
- *  returns its id so the caller can send the user straight there — "go train with them". */
+/** Copies `sourcePlanId` (owned by whoever started the group) into `targetUserId`'s own plan
+ *  library so they get their own real exercises to log against — `workoutSessions.planId` and
+ *  `getPlan` are both userId-scoped, so a session can never point at another user's plan. Each
+ *  plan exercise is matched (or created) in the target's own `exercises` table by name+brand via
+ *  findOrCreateExercise, so "same workout" means the same exercises and targets, not literally
+ *  the same rows. */
+async function clonePlanForTrainingPartner(sourcePlanId: number, targetUserId: number): Promise<number> {
+	const [sourcePlan] = await db.select({ name: workoutPlans.name }).from(workoutPlans).where(eq(workoutPlans.id, sourcePlanId));
+	if (!sourcePlan) throw new Error('Plan not found');
+
+	const sourceExercises = await db
+		.select({
+			name: exercises.name,
+			brand: exercises.brand,
+			muscleGroup: exercises.muscleGroup,
+			targetSets: planExercises.targetSets,
+			restSeconds: planExercises.restSeconds,
+			notes: planExercises.notes,
+			supersetGroup: planExercises.supersetGroup,
+			sortOrder: planExercises.sortOrder
+		})
+		.from(planExercises)
+		.innerJoin(exercises, eq(exercises.id, planExercises.exerciseId))
+		.where(eq(planExercises.planId, sourcePlanId))
+		.orderBy(asc(planExercises.sortOrder), asc(planExercises.id));
+
+	const [newPlan] = await db
+		.insert(workoutPlans)
+		.values({ userId: targetUserId, name: sourcePlan.name, createdAt: new Date() })
+		.returning();
+
+	for (const ex of sourceExercises) {
+		const myExercise = await findOrCreateExercise(targetUserId, ex.name, ex.brand, ex.muscleGroup);
+		await db.insert(planExercises).values({
+			planId: newPlan.id,
+			exerciseId: myExercise.id,
+			targetSets: ex.targetSets,
+			restSeconds: ex.restSeconds,
+			notes: ex.notes,
+			supersetGroup: ex.supersetGroup,
+			sortOrder: ex.sortOrder,
+			createdAt: new Date()
+		});
+	}
+
+	return newPlan.id;
+}
+
+/** Accepts an invite: creates the acceptor's own workout session (same date, and — if the
+ *  inviter's session came from a plan — a copy of that plan cloned into the acceptor's own
+ *  library, see clonePlanForTrainingPartner) so both sides land on the same workout with the
+ *  same exercises, links it into the group, and returns its id so the caller can send the user
+ *  straight there — "go train with them". */
 export async function acceptInvite(userId: number, memberId: number): Promise<number> {
 	const [member] = await db
 		.select()
@@ -150,7 +201,7 @@ export async function acceptInvite(userId: number, memberId: number): Promise<nu
 				.where(eq(workoutSessions.id, ownerMember.sessionId));
 			if (session) {
 				date = session.date;
-				planId = session.planId;
+				if (session.planId) planId = await clonePlanForTrainingPartner(session.planId, userId);
 			}
 		}
 	}

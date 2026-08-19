@@ -1,6 +1,6 @@
 import { db } from '$lib/server/db';
 import { exercises, workoutSets } from '$lib/server/db/schema';
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 
 export async function listExercises(userId: number) {
 	return db
@@ -62,4 +62,28 @@ export async function updateExercise(
 
 export async function deleteExercise(userId: number, id: number) {
 	await db.delete(exercises).where(and(eq(exercises.id, id), eq(exercises.userId, userId)));
+}
+
+/** Reuses `userId`'s existing exercise with this exact name+brand, or creates one — used when
+ *  copying another user's plan into this user's own library (shared plans, or Train Together's
+ *  session clone) so the copy's planExercises point at exercises this user actually owns. */
+export async function findOrCreateExercise(
+	userId: number,
+	name: string,
+	brand?: string | null,
+	muscleGroup?: string | null
+) {
+	const trimmedBrand = brand?.trim() || null;
+	const [existing] = await db
+		.select()
+		.from(exercises)
+		.where(
+			and(
+				eq(exercises.userId, userId),
+				eq(exercises.name, name),
+				trimmedBrand ? eq(exercises.brand, trimmedBrand) : isNull(exercises.brand)
+			)
+		);
+	if (existing) return existing;
+	return createExercise(userId, name, muscleGroup, trimmedBrand);
 }
