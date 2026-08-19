@@ -256,6 +256,35 @@ export const workoutSets = sqliteTable('workout_sets', {
 	index('workout_sets_exercise_idx').on(t.exerciseId)
 ]);
 
+/** A "training party": lets separate users' own workout sessions stay linked so they can train
+ *  together and see each other's live progress. Mirrors the meal/shopping-list sharing pattern,
+ *  but symmetric rather than owner→viewer — every member logs into their own session and
+ *  exercises, never another member's data. createdBy is whoever started the invite. */
+export const workoutGroups = sqliteTable('workout_groups', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	createdBy: integer('created_by').notNull().references(() => users.id, { onDelete: 'cascade' }),
+	createdAt: timestamp('created_at')
+});
+
+/** One member of a workoutGroup. `sessionId` is null while an invite is pending — the invitee
+ *  hasn't started training yet — and gets set to their own new workoutSessions row once they
+ *  accept (see acceptInvite), so their sets flow into their own account exactly as normal.
+ *  status tracks that lifecycle: 'invited' feeds the pending-invite banner, 'joined' feeds the
+ *  "training with" panel on the session screen. */
+export const workoutGroupMembers = sqliteTable('workout_group_members', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	groupId: integer('group_id').notNull().references(() => workoutGroups.id, { onDelete: 'cascade' }),
+	userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+	sessionId: integer('session_id').references(() => workoutSessions.id, { onDelete: 'set null' }),
+	status: text('status').notNull().default('invited'),
+	createdAt: timestamp('created_at')
+}, (t) => [
+	unique('workout_group_members_group_user_unique').on(t.groupId, t.userId),
+	index('workout_group_members_user_idx').on(t.userId),
+	index('workout_group_members_session_idx').on(t.sessionId),
+	check('workout_group_members_status_valid', sql`${t.status} in ('invited', 'joined')`)
+]);
+
 /** Daily macro targets. `label` is the hook for per-day-type targets later (e.g. 'training'/'rest');
  *  v1 only ever reads and writes the 'default' row. */
 export const nutritionTargets = sqliteTable('nutrition_targets', {

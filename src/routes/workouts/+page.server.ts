@@ -1,10 +1,12 @@
-import { redirect } from '@sveltejs/kit';
+import { fail, redirect } from '@sveltejs/kit';
 import { listSessions, createSession } from '$lib/server/repositories/workouts';
+import { listPendingInvites, acceptInvite, removeMember } from '$lib/server/repositories/workoutGroups';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
-	const sessions = await listSessions(locals.user!.id);
-	return { sessions };
+	const userId = locals.user!.id;
+	const [sessions, pendingInvites] = await Promise.all([listSessions(userId), listPendingInvites(userId)]);
+	return { sessions, pendingInvites };
 };
 
 function todayIso(): string {
@@ -19,5 +21,24 @@ export const actions: Actions = {
 	start: async ({ locals }) => {
 		const session = await createSession(locals.user!.id, todayIso());
 		throw redirect(303, `/workouts/${session.id}`);
+	},
+
+	acceptTrainingInvite: async ({ request, locals }) => {
+		const memberId = Number((await request.formData()).get('memberId'));
+		if (!Number.isFinite(memberId)) return fail(400, { error: 'Invalid invite' });
+		let sessionId: number;
+		try {
+			sessionId = await acceptInvite(locals.user!.id, memberId);
+		} catch (e) {
+			return fail(400, { error: e instanceof Error ? e.message : 'Could not accept invite' });
+		}
+		throw redirect(303, `/workouts/${sessionId}`);
+	},
+
+	declineTrainingInvite: async ({ request, locals }) => {
+		const memberId = Number((await request.formData()).get('memberId'));
+		if (!Number.isFinite(memberId)) return fail(400, { error: 'Invalid invite' });
+		await removeMember(locals.user!.id, memberId);
+		return { success: true };
 	}
 };

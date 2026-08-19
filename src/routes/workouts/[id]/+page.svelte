@@ -1,5 +1,7 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { enhance } from '$app/forms';
+	import { invalidate } from '$app/navigation';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import Card from '$lib/components/Card.svelte';
 	import Button from '$lib/components/Button.svelte';
@@ -11,12 +13,31 @@
 	import QuickEntryRow from '$lib/components/workouts/QuickEntryRow.svelte';
 	import ExercisePicker from '$lib/components/workouts/ExercisePicker.svelte';
 	import RestTimer from '$lib/components/workouts/RestTimer.svelte';
+	import TrainTogetherModal from '$lib/components/workouts/TrainTogetherModal.svelte';
 	import { groupIntoBlocks, isSuperset, supersetLabel, type Block } from '$lib/utils/supersets';
 	import { todayIso } from '$lib/utils/todayIso';
 	import { shiftIsoDate } from '$lib/utils/isoDate';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+
+	let trainOpen = $state(false);
+
+	// Poll partner progress while this screen is open — cheap (one grouped query) and gives a
+	// "someone else just logged a set" feel without adding a websocket layer for one panel.
+	onMount(() => {
+		const interval = setInterval(() => invalidate('workout:training-partners'), 15000);
+		return () => clearInterval(interval);
+	});
+
+	function relativeTime(date: Date): string {
+		const seconds = Math.max(0, Math.round((Date.now() - date.getTime()) / 1000));
+		if (seconds < 60) return 'just now';
+		const minutes = Math.round(seconds / 60);
+		if (minutes < 60) return `${minutes}m ago`;
+		const hours = Math.round(minutes / 60);
+		return `${hours}h ago`;
+	}
 
 	type ExerciseOption = { id: number; name: string; brand: string | null; muscleGroup: string | null };
 	type SetEntry = { id: number; exerciseId: number; reps: number; weight: number; rpe: number | null; notes: string | null };
@@ -226,6 +247,17 @@
 
 <PageHeader title={headerTitle} back="/workouts">
 	{#snippet actions()}
+		<button
+			type="button"
+			aria-label="Train together"
+			onclick={() => (trainOpen = true)}
+			class="relative h-9 w-9 flex items-center justify-center rounded-full text-[var(--color-text-muted)] hover:bg-[var(--color-surface-alt)]"
+		>
+			<Icon name="users" size={18} />
+			{#if data.trainingPartners.length > 0}
+				<span class="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-[var(--color-accent)]"></span>
+			{/if}
+		</button>
 		<form
 			method="POST"
 			action="?/deleteSession"
@@ -252,6 +284,32 @@
 		{#key restKey}
 			<RestTimer targetSeconds={restTarget} />
 		{/key}
+	{/if}
+
+	{#if data.trainingPartners.length > 0}
+		<section class="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3.5">
+			<button type="button" onclick={() => (trainOpen = true)} class="flex w-full items-center justify-between gap-2">
+				<span class="flex items-center gap-1.5 text-[0.6875rem] font-semibold uppercase tracking-[0.09em] text-[var(--color-accent)]">
+					<Icon name="users" size={14} /> Training together
+				</span>
+				<Icon name="chevron-right" size={16} class="text-[var(--color-text-muted)]" />
+			</button>
+			<div class="mt-2.5 space-y-1.5">
+				{#each data.trainingPartners as partner (partner.memberId)}
+					<div class="flex items-center justify-between gap-2 text-sm">
+						<span class="min-w-0 truncate text-[var(--color-text)]">{partner.username}</span>
+						{#if partner.status === 'invited'}
+							<span class="shrink-0 text-xs text-[var(--color-text-muted)]">Invited</span>
+						{:else}
+							<span class="shrink-0 text-xs tabular-nums text-[var(--color-text-muted)]">
+								{partner.setCount} {partner.setCount === 1 ? 'set' : 'sets'}
+								{#if partner.lastSetAt} &middot; {relativeTime(partner.lastSetAt)}{/if}
+							</span>
+						{/if}
+					</div>
+				{/each}
+			</div>
+		</section>
 	{/if}
 
 	<!-- ── Session hero + Set Ledger — the session's shape at a glance ── -->
@@ -495,3 +553,4 @@
 </div>
 
 <ExercisePicker bind:open={pickerOpen} exercises={data.allExercises} onselect={handleExercisePicked} />
+<TrainTogetherModal bind:open={trainOpen} partners={data.trainingPartners} />
