@@ -184,6 +184,9 @@ export async function deleteUser(actingId: number, userId: number) {
 		tx.run(sql`delete from workout_sets where session_id in (select id from workout_sessions where user_id = ${u}) or exercise_id in (select id from exercises where user_id = ${u})`);
 		tx.run(sql`delete from exercise_goals where exercise_id in (select id from exercises where user_id = ${u})`);
 		tx.run(sql`delete from plan_exercises where plan_id in (select id from workout_plans where user_id = ${u}) or exercise_id in (select id from exercises where user_id = ${u})`);
+		// training-together links: this user's own membership rows, plus every member of any group they started
+		tx.run(sql`delete from workout_group_members where user_id = ${u} or group_id in (select id from workout_groups where created_by = ${u})`);
+		tx.run(sql`delete from workout_groups where created_by = ${u}`);
 		// leaf rows that hang off the user's meals / products / items / categories
 		tx.run(sql`delete from shopping_list_item_sources where item_id in (select id from shopping_list_items where user_id = ${u}) or meal_id in (select id from meals where user_id = ${u})`);
 		tx.run(sql`delete from meal_ingredients where meal_id in (select id from meals where user_id = ${u}) or product_id in (select id from products where user_id = ${u}) or sub_meal_id in (select id from meals where user_id = ${u})`);

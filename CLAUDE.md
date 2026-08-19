@@ -66,6 +66,13 @@ sharing/ownership pattern:
   merged line item). `shoppingListShares` grants another account access to your list.
 - **Workouts**: `workoutPlans` → `planExercises` (template), separate from logged
   `workoutSessions` → `workoutSets` (actuals). `exerciseGoals` tracks per-exercise targets.
+  `workoutGroups`/`workoutGroupMembers` let separate users train together: unlike the owner→viewer
+  meal/shopping-list shares, this is symmetric — inviting someone (by username, from a session's
+  "Train together" panel) creates a group and a pending membership row; accepting clones the
+  inviter's session (same date/plan) into the acceptor's *own* account and links it in, so every
+  member still only ever writes their own `workoutSessions`/`workoutSets`/`exercises`. The session
+  screen polls `listTrainingPartners` (`$lib/server/repositories/workoutGroups.ts`) for live
+  set/exercise counts from the other members' sessions.
 - **Body**: `bodyMetrics` (one upsert row per user per day: weight + circumferences, all canonical
   kg/cm, all nullable), `weightGoals` (one per user), `userSettings` (display units + height for BMI),
   and `progressPhotos`. Progress photos are **strictly private (never shared) and encrypted at rest** —

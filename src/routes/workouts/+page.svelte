@@ -43,6 +43,38 @@
 		goals on <strong>Exercises</strong> to track them from Today.
 	</HintCard>
 
+	{#if data.pendingInvites.length > 0}
+		<div class="space-y-2">
+			{#each data.pendingInvites as invite (invite.memberId)}
+				<Card>
+					<div class="flex items-center gap-3">
+						<span class="h-9 w-9 shrink-0 flex items-center justify-center rounded-full bg-[var(--color-accent-soft)] text-[var(--color-accent)]">
+							<Icon name="users" size={18} />
+						</span>
+						<p class="min-w-0 flex-1 text-sm text-[var(--color-text)]">
+							<span class="font-medium">{invite.inviterUsername}</span> invited you to train together
+							{#if invite.date}&middot; {formatDate(invite.date)}{/if}
+							{#if invite.planName}&middot; {invite.planName}{/if}
+						</p>
+					</div>
+					<div class="mt-3 flex gap-2">
+						<form method="POST" action="?/acceptTrainingInvite" use:enhance class="flex-1">
+							<input type="hidden" name="memberId" value={invite.memberId} />
+							<Button type="submit" variant="primary" size="md" full>
+								<Icon name="dumbbell" size={16} />
+								Go train with them
+							</Button>
+						</form>
+						<form method="POST" action="?/declineTrainingInvite" use:enhance>
+							<input type="hidden" name="memberId" value={invite.memberId} />
+							<Button type="submit" variant="ghost" size="md">Decline</Button>
+						</form>
+					</div>
+				</Card>
+			{/each}
+		</div>
+	{/if}
+
 	<form method="POST" action="?/start" use:enhance>
 		<Button type="submit" variant="primary" size="lg" full>
 			<Icon name="plus" size={20} />

@@ -27,7 +27,8 @@
 		| 'vial'
 		| 'calendar'
 		| 'clock'
-		| 'alert';
+		| 'alert'
+		| 'users';
 
 	let { name, size = 22, class: className = '' }: { name: IconName; size?: number; class?: string } =
 		$props();
@@ -136,5 +137,10 @@
 		<path d="M12 4 2.5 20h19L12 4Z" />
 		<path d="M12 10v4" />
 		<path d="M12 17h.01" />
+	{:else if name === 'users'}
+		<circle cx="8.5" cy="8" r="3.3" />
+		<path d="M2.5 19.5c0-3.3 2.7-5.8 6-5.8s6 2.5 6 5.8" />
+		<path d="M15.5 5.3a3.3 3.3 0 0 1 0 6.4" />
+		<path d="M17 13.8c2.6.5 4.5 2.6 4.5 5.7" />
 	{/if}
 </svg>

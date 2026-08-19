@@ -11,11 +11,13 @@ import {
 import { listExercises, createExercise } from '$lib/server/repositories/exercises';
 import { getPlan } from '$lib/server/repositories/workoutPlans';
 import { goalsByExercise } from '$lib/server/repositories/exerciseGoals';
+import { listTrainingPartners, inviteToTrainTogether, removeMember } from '$lib/server/repositories/workoutGroups';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ params, locals }) => {
+export const load: PageServerLoad = async ({ params, locals, depends }) => {
 	const userId = locals.user!.id;
 	const id = Number(params.id);
+	depends('workout:training-partners');
 	const result = await getSessionWithSets(userId, id);
 	if (!result) throw error(404, 'Workout session not found');
 
@@ -34,6 +36,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const plan = result.session.planId ? await getPlan(userId, result.session.planId) : null;
 	const planExercises = plan?.exercises ?? [];
 
+	const { selfMemberId, partners } = await listTrainingPartners(userId, id);
+
 	return {
 		session: result.session,
 		exerciseGroups: result.exerciseGroups,
@@ -41,7 +45,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		lastSetsByExercise,
 		planExercises,
 		planName: plan?.plan.name ?? null,
-		goalsByExercise: await goalsByExercise(userId)
+		goalsByExercise: await goalsByExercise(userId),
+		trainingPartners: partners,
+		selfMemberId
 	};
 };
 
@@ -119,5 +125,23 @@ export const actions: Actions = {
 		const id = Number((await request.formData()).get('id'));
 		if (!id) return fail(400, { error: 'Missing id' });
 		await deleteSet(locals.user!.id, id);
+	},
+
+	inviteToTrain: async ({ request, params, locals }) => {
+		const sessionId = Number(params.id);
+		const username = String((await request.formData()).get('username') ?? '');
+		try {
+			await inviteToTrainTogether(locals.user!.id, sessionId, username);
+		} catch (e) {
+			return fail(400, { error: e instanceof Error ? e.message : 'Could not send invite' });
+		}
+		return { success: true };
+	},
+
+	removeTrainingMember: async ({ request, locals }) => {
+		const memberId = Number((await request.formData()).get('memberId'));
+		if (!Number.isFinite(memberId)) return fail(400, { error: 'Invalid member' });
+		await removeMember(locals.user!.id, memberId);
+		return { success: true };
 	}
 };
