@@ -19,10 +19,15 @@
 		if (rightId === null && newest) rightId = newest.id;
 	});
 
+	function peptideName(id: number | null): string | null {
+		if (id == null) return null;
+		return data.peptides.find((p) => p.id === id)?.name ?? null;
+	}
+
 	const options = $derived(
 		data.photos.map((p) => ({
 			id: p.id,
-			label: `${fmtDate(p.date)}${p.pose ? ` · ${p.pose}` : ''}`
+			label: `${fmtDate(p.date)}${peptideName(p.peptideId) ? ` · ${peptideName(p.peptideId)}` : ''}`
 		}))
 	);
 
@@ -36,12 +41,12 @@
 
 <svelte:head><title>Compare · Fitness Tracker</title></svelte:head>
 
-<PageHeader title="Compare" back="/body/photos" />
+<PageHeader title="Compare" back="/peptides/photos" />
 
 <div class="mx-auto max-w-md px-4 pb-4 space-y-4">
 	{#if data.photos.length < 2}
 		<EmptyState icon="camera" title="Need two photos" description="Add at least two progress photos to compare them.">
-			<Button href="/body/photos" variant="primary">Back to photos</Button>
+			<Button href="/peptides/photos" variant="primary">Back to photos</Button>
 		</EmptyState>
 	{:else}
 		<div class="grid grid-cols-2 gap-3">
@@ -69,8 +74,8 @@
 
 		{#if left && right}
 			<PhotoCompareSlider
-				beforeSrc={`/body/photos/${left.id}/file`}
-				afterSrc={`/body/photos/${right.id}/file`}
+				beforeSrc={`/peptides/photos/${left.id}/file`}
+				afterSrc={`/peptides/photos/${right.id}/file`}
 				beforeLabel={fmtDate(left.date)}
 				afterLabel={fmtDate(right.date)}
 			/>
