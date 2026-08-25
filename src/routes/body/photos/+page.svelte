@@ -8,12 +8,31 @@
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import HintCard from '$lib/components/HintCard.svelte';
 	import UploadProgressPhotoModal from '$lib/components/body/UploadProgressPhotoModal.svelte';
+	import PhotoLightbox from '$lib/components/PhotoLightbox.svelte';
 	import { goto } from '$app/navigation';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
 
 	let uploadOpen = $state(false);
+	let lightboxOpen = $state(false);
+	let lightboxStartId = $state<number | null>(null);
+	let lastTriggerEl: HTMLElement | null = null;
+
+	const lightboxPhotos = $derived(
+		data.photos.map((p) => ({
+			id: p.id,
+			date: p.date,
+			label: p.pose ? p.pose[0].toUpperCase() + p.pose.slice(1) : null,
+			caption: p.caption
+		}))
+	);
+
+	function openLightbox(id: number, e: MouseEvent) {
+		lastTriggerEl = e.currentTarget as HTMLElement;
+		lightboxStartId = id;
+		lightboxOpen = true;
+	}
 
 	const poseFilters = [
 		{ value: '', label: 'All' },
@@ -79,15 +98,17 @@
 		<div class="grid grid-cols-2 gap-3">
 			{#each data.photos as photo (photo.id)}
 				<div class="relative overflow-hidden rounded-[var(--radius-md)] bg-[var(--color-surface-alt)]">
-					<img src={`/body/photos/${photo.id}/file`} alt={`Progress photo ${fmtDate(photo.date)}`} class="aspect-[3/4] w-full object-cover" loading="lazy" />
-					<div class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-2.5 py-2">
-						<p class="text-xs font-medium text-white tabular-nums">{fmtDate(photo.date)}</p>
-						{#if photo.pose || photo.caption}
-							<p class="truncate text-[11px] text-white/80">
-								{#if photo.pose}<span class="capitalize">{photo.pose}</span>{/if}{#if photo.pose && photo.caption} · {/if}{photo.caption ?? ''}
-							</p>
-						{/if}
-					</div>
+					<button type="button" class="block w-full" aria-label={`View photo ${fmtDate(photo.date)}`} onclick={(e) => openLightbox(photo.id, e)}>
+						<img src={`/body/photos/${photo.id}/file`} alt={`Progress photo ${fmtDate(photo.date)}`} class="aspect-[3/4] w-full object-cover" loading="lazy" />
+						<div class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-2.5 py-2">
+							<p class="text-xs font-medium text-white tabular-nums">{fmtDate(photo.date)}</p>
+							{#if photo.pose || photo.caption}
+								<p class="truncate text-[11px] text-white/80">
+									{#if photo.pose}<span class="capitalize">{photo.pose}</span>{/if}{#if photo.pose && photo.caption} · {/if}{photo.caption ?? ''}
+								</p>
+							{/if}
+						</div>
+					</button>
 					<form method="POST" action="?/delete" use:enhance class="absolute right-1.5 top-1.5">
 						<input type="hidden" name="id" value={photo.id} />
 						<button type="submit" aria-label={`Delete photo ${fmtDate(photo.date)}`} class="h-8 w-8 flex items-center justify-center rounded-full bg-black/45 text-white hover:bg-[var(--color-danger)]">
@@ -101,3 +122,10 @@
 </div>
 
 <UploadProgressPhotoModal bind:open={uploadOpen} />
+<PhotoLightbox
+	bind:open={lightboxOpen}
+	photos={lightboxPhotos}
+	startId={lightboxStartId}
+	srcBase="/body/photos"
+	onclose={() => lastTriggerEl?.focus()}
+/>
