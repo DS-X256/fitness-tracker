@@ -57,6 +57,11 @@
 
 <PageHeader title="Progress photos" back="/peptides">
 	{#snippet actions()}
+		{#if data.photos.length > 1}
+			<a href="/peptides/photos/compare" aria-label="Compare photos" class="h-9 w-9 flex items-center justify-center rounded-full text-[var(--color-text-muted)] hover:bg-[var(--color-surface-alt)]">
+				<Icon name="chart" size={18} />
+			</a>
+		{/if}
 		<button type="button" aria-label="Add photo" onclick={() => (uploadOpen = true)} class="h-9 w-9 flex items-center justify-center rounded-full text-[var(--color-text-muted)] hover:bg-[var(--color-surface-alt)]">
 			<Icon name="plus" size={20} />
 		</button>
