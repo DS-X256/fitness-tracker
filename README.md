@@ -14,6 +14,10 @@ installable as a PWA, and packaged to run on a home server with one command.
 - **Body tracker** — log body weight and measurements (waist, chest, arms, …), a smoothed weight
   trend with a goal + BMI, and **progress photos**. Photos are strictly private to your account,
   encrypted at rest, and stripped of location/camera metadata (see Security notes).
+- **Peptide tracker** — compounds, dose/schedule protocols (editable any time, even mid-cycle),
+  inventory vials, and a dose log — everything logged is editable in place, not just deletable.
+  Encrypted at rest like body data, with its own private, encrypted **progress photo** gallery per
+  compound.
 
 ## Requirements
 

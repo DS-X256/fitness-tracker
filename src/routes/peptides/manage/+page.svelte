@@ -97,6 +97,7 @@
 
 	// --- Vial modal ---
 	let vialOpen = $state(false);
+	let vId = $state<number | null>(null);
 	let vPeptideId = $state<number | null>(null);
 	let vForm = $state<ContainerForm>('vial');
 	let vVialMg = $state<number | null>(null);
@@ -113,10 +114,19 @@
 	// Serum/capsules aren't wired up yet — topical/oral land with their own phase.
 	const VIAL_FORMS: ContainerForm[] = ['vial', 'nasal_spray', 'patches'];
 	function newVial() {
+		vId = null;
 		vPeptideId = data.peptides[0]?.id ?? null; vForm = 'vial'; vVialMg = null; vWaterMl = null;
 		vConcentrationMgMl = null; vActuationVolumeUl = null; vPrimingActuations = null;
 		vUnitCount = null; vUnitMassMcg = null;
 		vRecon = ''; vExpires = ''; vNotes = ''; vError = '';
+		vialOpen = true;
+	}
+	function editVial(v: PageData['vials'][number]) {
+		vId = v.id;
+		vPeptideId = v.peptideId; vForm = v.form; vVialMg = v.vialMg; vWaterMl = v.bacWaterMl;
+		vConcentrationMgMl = v.concentrationMgMl; vActuationVolumeUl = v.actuationVolumeUl;
+		vPrimingActuations = v.primingActuations; vUnitCount = v.unitCount; vUnitMassMcg = v.unitMassMcg;
+		vRecon = v.reconstitutedAt ?? ''; vExpires = v.expiresAt ?? ''; vNotes = v.notes ?? ''; vError = '';
 		vialOpen = true;
 	}
 	// Effective mg/mL, whichever way it was entered — direct or derived from powder + volume.
@@ -275,6 +285,9 @@
 									{v.dosesLogged} dose{v.dosesLogged === 1 ? '' : 's'} logged{#if v.expiresAt} · expires {v.expiresAt}{/if}
 								</p>
 							</div>
+							<button type="button" aria-label="Edit" onclick={() => editVial(v)} class="h-8 w-8 flex items-center justify-center rounded-full text-[var(--color-text-muted)] hover:bg-[var(--color-surface-alt)]">
+								<Icon name="edit" size={16} />
+							</button>
 							<form method="POST" action="?/toggleVial" use:enhance>
 								<input type="hidden" name="id" value={v.id} />
 								<input type="hidden" name="depleted" value={(!v.depleted).toString()} />
@@ -413,8 +426,9 @@
 	</Modal>
 
 	<!-- Vial modal -->
-	<Modal bind:open={vialOpen} title={`Add ${CONTAINER_FORM_LABELS[vForm].toLowerCase()}`}>
+	<Modal bind:open={vialOpen} title={`${vId ? 'Edit' : 'Add'} ${CONTAINER_FORM_LABELS[vForm].toLowerCase()}`}>
 		<form method="POST" action="?/saveVial" class="space-y-4" use:enhance={closeOn(() => (vialOpen = false))}>
+			<input type="hidden" name="id" value={vId ?? ''} />
 			<input type="hidden" name="form" value={vForm} />
 			<div>
 				<label for="v-pep" class="block text-sm font-medium text-[var(--color-text)] mb-1.5">Peptide</label>

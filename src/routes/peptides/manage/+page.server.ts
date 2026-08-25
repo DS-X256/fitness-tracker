@@ -14,7 +14,7 @@ import {
 	setProtocolActive,
 	updateProtocol
 } from '$lib/server/repositories/peptideProtocols';
-import { createVial, deleteVial, listVials, setVialDepleted } from '$lib/server/repositories/peptideVials';
+import { createVial, deleteVial, listVials, setVialDepleted, updateVial } from '$lib/server/repositories/peptideVials';
 import { seedPeptidesForUser } from '$lib/server/peptidePresets';
 import { parseDecimal } from '$lib/utils/parseDecimal';
 import { isPeptideCategory, isAdminRoute, isContainerForm } from '$lib/utils/peptides';
@@ -144,25 +144,28 @@ export const actions: Actions = {
 	saveVial: async ({ request, locals }) => {
 		const userId = locals.user!.id;
 		const form = await request.formData();
+		const id = Number(form.get('id'));
 		const formValue = String(form.get('form') ?? '');
 		const container = isContainerForm(formValue) ? formValue : 'vial';
 		const vialMg = num(form, 'vialMg');
 		if (container === 'vial' && vialMg == null) return fail(400, { error: 'Enter the vial size in mg' });
+		const input = {
+			peptideId: Number(form.get('peptideId')),
+			form: container,
+			vialMg,
+			bacWaterMl: num(form, 'bacWaterMl'),
+			reconstitutedAt: str(form, 'reconstitutedAt'),
+			expiresAt: str(form, 'expiresAt'),
+			notes: str(form, 'notes'),
+			concentrationMgMl: num(form, 'concentrationMgMl'),
+			actuationVolumeUl: num(form, 'actuationVolumeUl'),
+			primingActuations: num(form, 'primingActuations'),
+			unitCount: num(form, 'unitCount'),
+			unitMassMcg: num(form, 'unitMassMcg')
+		};
 		try {
-			await createVial(userId, {
-				peptideId: Number(form.get('peptideId')),
-				form: container,
-				vialMg,
-				bacWaterMl: num(form, 'bacWaterMl'),
-				reconstitutedAt: str(form, 'reconstitutedAt'),
-				expiresAt: str(form, 'expiresAt'),
-				notes: str(form, 'notes'),
-				concentrationMgMl: num(form, 'concentrationMgMl'),
-				actuationVolumeUl: num(form, 'actuationVolumeUl'),
-				primingActuations: num(form, 'primingActuations'),
-				unitCount: num(form, 'unitCount'),
-				unitMassMcg: num(form, 'unitMassMcg')
-			});
+			if (Number.isFinite(id) && id > 0) await updateVial(userId, id, input);
+			else await createVial(userId, input);
 		} catch (e) {
 			return fail(400, { error: e instanceof Error ? e.message : 'Could not save vial' });
 		}

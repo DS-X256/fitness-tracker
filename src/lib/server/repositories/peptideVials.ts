@@ -184,6 +184,19 @@ export async function createVial(userId: number, input: VialInput): Promise<Vial
 	return decode(row);
 }
 
+/** Edits a container in place (fix a mistyped concentration, volume, etc.) — vials previously had no
+ *  update path, only create/deplete/delete. */
+export async function updateVial(userId: number, id: number, input: VialInput): Promise<Vial> {
+	const data = sanitize(input);
+	const [row] = await db
+		.update(peptideVials)
+		.set({ peptideId: input.peptideId, enc: encryptJson(data, aad(userId)) })
+		.where(and(eq(peptideVials.id, id), eq(peptideVials.userId, userId)))
+		.returning();
+	if (!row) throw new Error('Vial not found');
+	return decode(row);
+}
+
 export async function setVialDepleted(userId: number, id: number, depleted: boolean): Promise<void> {
 	await db.update(peptideVials).set({ depleted }).where(and(eq(peptideVials.id, id), eq(peptideVials.userId, userId)));
 }

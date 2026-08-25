@@ -11,7 +11,8 @@ import {
 	loggedDatesForPeptide,
 	logDose,
 	mcgConsumedByVial,
-	recentSites
+	recentSites,
+	updateDose
 } from '$lib/server/repositories/peptideDoses';
 import { seedPeptidesForUser } from '$lib/server/peptidePresets';
 import { todayIso } from '$lib/utils/todayIso';
@@ -220,6 +221,43 @@ export const actions: Actions = {
 			});
 		} catch (e) {
 			return fail(400, { error: e instanceof Error ? e.message : 'Could not log dose' });
+		}
+		return { success: true };
+	},
+
+	updateDose: async ({ request, locals }) => {
+		const userId = locals.user!.id;
+		const form = await request.formData();
+		const id = Number(form.get('id'));
+		if (!Number.isFinite(id)) return fail(400, { error: 'Invalid dose' });
+		const peptideId = Number(form.get('peptideId'));
+		if (!Number.isFinite(peptideId)) return fail(400, { error: 'Pick a peptide' });
+		const doseMcg = num(form, 'doseMcg');
+		if (doseMcg == null) return fail(400, { error: 'Enter a dose in mcg' });
+		const siteRaw = String(form.get('site') ?? '');
+		const routeRaw = String(form.get('route') ?? '');
+		const vialId = Number(form.get('vialId'));
+		const protocolId = Number(form.get('protocolId'));
+		const measureCount = num(form, 'measureCount');
+		const measureUnitRaw = String(form.get('measureUnit') ?? '');
+		const kindRaw = String(form.get('kind') ?? '');
+		try {
+			await updateDose(userId, id, {
+				peptideId,
+				date: String(form.get('date') ?? '').trim() || todayIso(),
+				doseMcg,
+				site: isApplicationSite(siteRaw) ? siteRaw : null,
+				route: isAdminRoute(routeRaw) ? routeRaw : null,
+				time: String(form.get('time') ?? '').trim() || null,
+				vialId: Number.isFinite(vialId) && vialId > 0 ? vialId : null,
+				protocolId: Number.isFinite(protocolId) && protocolId > 0 ? protocolId : null,
+				measureCount,
+				measureUnit: isMeasureUnit(measureUnitRaw) ? measureUnitRaw : null,
+				kind: isDoseKind(kindRaw) ? kindRaw : 'dose',
+				notes: String(form.get('notes') ?? '').trim() || null
+			});
+		} catch (e) {
+			return fail(400, { error: e instanceof Error ? e.message : 'Could not update dose' });
 		}
 		return { success: true };
 	},
