@@ -495,3 +495,26 @@ export const peptideDoses = sqliteTable('peptide_doses', {
 	index('peptide_doses_user_date_idx').on(t.userId, t.date),
 	index('peptide_doses_peptide_idx').on(t.peptideId)
 ]);
+
+/** Progress photos scoped to a peptide compound (or general, if `peptideId` is null) — the peptide
+ *  analogue of `progressPhotos`, same file-level encryption story (see $lib/server/storage/peptidePhotos,
+ *  which reuses $lib/server/crypto/photoCrypto as-is: it's a whole-file AES-256-GCM scheme already keyed
+ *  per-file off `${userId}:${filename}`, so there's nothing peptide-specific to add at the crypto layer).
+ *  `filename` is an opaque on-disk name; real image type is `mime`, plaintext size after metadata
+ *  stripping is `byteSize`. Unlike peptideDoses, `peptideId` here is nullable and `onDelete: 'set null'`
+ *  — deleting a compound un-links its photos rather than destroying them, since a photo often documents
+ *  something (skin, physique) that outlives any one compound's record. */
+export const peptidePhotos = sqliteTable('peptide_photos', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+	peptideId: integer('peptide_id').references(() => peptides.id, { onDelete: 'set null' }),
+	date: text('date').notNull(),
+	filename: text('filename').notNull(),
+	mime: text('mime').notNull(),
+	byteSize: integer('byte_size').notNull(),
+	caption: text('caption'),
+	createdAt: timestamp('created_at')
+}, (t) => [
+	index('peptide_photos_user_date_idx').on(t.userId, t.date),
+	index('peptide_photos_peptide_idx').on(t.peptideId)
+]);

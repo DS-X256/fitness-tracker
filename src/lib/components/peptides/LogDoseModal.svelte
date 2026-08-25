@@ -37,19 +37,37 @@
 		unitMassMcg: number | null;
 	};
 	type Initial = { peptideId?: number; doseMcg?: number | null; protocolId?: number | null } | null;
+	/** An already-logged dose to edit in place, rather than logging a new one. */
+	type Editing = {
+		id: number;
+		peptideId: number;
+		protocolId: number | null;
+		vialId: number | null;
+		date: string;
+		doseMcg: number;
+		site: ApplicationSite | null;
+		route: AdminRoute | null;
+		time: string | null;
+		measureCount: number | null;
+		measureUnit: MeasureUnit | null;
+		kind: 'dose' | 'prime' | 'remove';
+		notes: string | null;
+	};
 
 	let {
 		open = $bindable(false),
 		peptides,
 		vials,
 		recentSites = [],
-		initial = null
+		initial = null,
+		editing = null
 	}: {
 		open?: boolean;
 		peptides: PeptideOpt[];
 		vials: VialOpt[];
 		recentSites?: { route: AdminRoute | null; site: ApplicationSite | null }[];
 		initial?: Initial;
+		editing?: Editing | null;
 	} = $props();
 
 	let peptideId = $state<number | null>(null);
@@ -71,6 +89,21 @@
 
 	$effect(() => {
 		if (!open) return;
+		error = '';
+		if (editing) {
+			peptideId = editing.peptideId;
+			date = editing.date;
+			doseMcg = editing.doseMcg;
+			site = editing.site;
+			route = editing.route ?? '';
+			vialId = editing.vialId; // set directly (not via selectContainer) so it doesn't clobber route above
+			time = editing.time ?? '';
+			notes = editing.notes ?? '';
+			sprayCount = editing.measureUnit === 'spray' ? (editing.measureCount ?? 1) : 1;
+			isPrime = editing.measureUnit === 'spray' && editing.kind === 'prime';
+			isRemove = editing.measureUnit === 'patch' && editing.kind === 'remove';
+			return;
+		}
 		peptideId = initial?.peptideId ?? peptides[0]?.id ?? null;
 		date = todayIso();
 		doseMcg = initial?.doseMcg ?? null;
@@ -79,7 +112,6 @@
 		vialId = null;
 		time = '';
 		notes = '';
-		error = '';
 		sprayCount = 1;
 		isPrime = false;
 		isRemove = false;
@@ -153,21 +185,23 @@
 	const kind = $derived(isNasal && isPrime ? 'prime' : isTransdermal && isRemove ? 'remove' : 'dose');
 </script>
 
-<Modal bind:open title="Log a dose">
+<Modal bind:open title={editing ? 'Edit dose' : 'Log a dose'}>
 	<form
 		method="POST"
-		action="/peptides?/logDose"
+		action={editing ? '/peptides?/updateDose' : '/peptides?/logDose'}
 		class="space-y-4"
 		use:enhance={() => {
 			error = '';
 			return async ({ result, update }) => {
 				if (result.type === 'success') open = false;
-				else if (result.type === 'failure') error = (result.data?.error as string) ?? 'Could not log dose';
+				else if (result.type === 'failure')
+					error = (result.data?.error as string) ?? (editing ? 'Could not update dose' : 'Could not log dose');
 				await update({ reset: false });
 			};
 		}}
 	>
-		<input type="hidden" name="protocolId" value={initial?.protocolId ?? ''} />
+		{#if editing}<input type="hidden" name="id" value={editing.id} />{/if}
+		<input type="hidden" name="protocolId" value={editing?.protocolId ?? initial?.protocolId ?? ''} />
 		<input type="hidden" name="measureCount" value={measureCount ?? ''} />
 		<input type="hidden" name="measureUnit" value={measureUnit ?? ''} />
 		<input type="hidden" name="kind" value={kind} />
@@ -305,6 +339,6 @@
 		<TextareaField label="Notes" name="notes" bind:value={notes} rows={2} placeholder="Optional — effects, side effects, etc." />
 
 		{#if error}<p class="text-sm text-[var(--color-danger)]">{error}</p>{/if}
-		<Button type="submit" variant="primary" full class="w-full">Log dose</Button>
+		<Button type="submit" variant="primary" full class="w-full">{editing ? 'Save changes' : 'Log dose'}</Button>
 	</form>
 </Modal>

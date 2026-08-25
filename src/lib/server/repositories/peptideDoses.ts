@@ -83,14 +83,13 @@ function decode(row: typeof peptideDoses.$inferSelect): Dose {
 	};
 }
 
-export async function logDose(userId: number, input: DoseInput): Promise<Dose> {
-	if (!isValidIsoDate(input.date)) throw new Error('Invalid date');
+function sanitize(input: DoseInput): DoseEnc {
 	if (!Number.isFinite(input.doseMcg) || input.doseMcg <= 0 || input.doseMcg > 100_000) {
 		throw new Error('Dose (mcg) is out of range');
 	}
 	const measureCount =
 		input.measureCount != null && Number.isFinite(input.measureCount) ? input.measureCount : null;
-	const enc: DoseEnc = {
+	return {
 		doseMcg: Math.round(input.doseMcg * 1000) / 1000,
 		// Broad validators (any application site/route), not the injection-only ones — the injection-only
 		// guards used here previously silently dropped every non-injection site/route on write.
@@ -102,6 +101,11 @@ export async function logDose(userId: number, input: DoseInput): Promise<Dose> {
 		kind: isDoseKind(input.kind) ? input.kind : 'dose',
 		notes: input.notes?.trim() || null
 	};
+}
+
+export async function logDose(userId: number, input: DoseInput): Promise<Dose> {
+	if (!isValidIsoDate(input.date)) throw new Error('Invalid date');
+	const enc = sanitize(input);
 	const [row] = await db
 		.insert(peptideDoses)
 		.values({
@@ -114,6 +118,27 @@ export async function logDose(userId: number, input: DoseInput): Promise<Dose> {
 			createdAt: new Date()
 		})
 		.returning();
+	return decode(row);
+}
+
+/** Edits an already-logged dose in place (fix a wrong dose/time/site/date after the fact) — unlike
+ *  peptideProtocols, doses had no update path until this; a logged dose is otherwise immutable
+ *  (log-then-delete-and-relog). Re-validates and re-encrypts exactly like logDose. */
+export async function updateDose(userId: number, id: number, input: DoseInput): Promise<Dose> {
+	if (!isValidIsoDate(input.date)) throw new Error('Invalid date');
+	const enc = sanitize(input);
+	const [row] = await db
+		.update(peptideDoses)
+		.set({
+			peptideId: input.peptideId,
+			protocolId: input.protocolId ?? null,
+			vialId: input.vialId ?? null,
+			date: input.date,
+			enc: encryptJson(enc, aad(userId))
+		})
+		.where(and(eq(peptideDoses.id, id), eq(peptideDoses.userId, userId)))
+		.returning();
+	if (!row) throw new Error('Dose not found');
 	return decode(row);
 }
 

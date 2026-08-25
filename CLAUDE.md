@@ -80,6 +80,19 @@ sharing/ownership pattern:
   `PHOTO_ENCRYPTION_KEY`), written by `$lib/server/storage/progressPhotos` after EXIF/metadata stripping
   (`$lib/server/storage/images`), and only ever decrypted in the ownership-checked serve route
   `routes/body/photos/[id]/file`. Don't add sharing or a non-encrypted path for these.
+- **Peptides**: a medication-adherence log — `peptides` (compound catalog) → `peptideProtocols` (the
+  "plan" template: dose/schedule/optional loading phase, editable in place at any time, even after it's
+  gone active — there's no lock) and `peptideVials` (inventory containers, any form: vial/nasal_spray/
+  serum/capsules/patches), separate from logged `peptideDoses` (the "actuals", one row per admin/prime/
+  removal event). All four are **strictly private and encrypted at rest field-by-field** — every
+  sensitive column is an AES-256-GCM JSON blob (`enc`, via `$lib/server/crypto/fieldCrypto`, same
+  `PHOTO_ENCRYPTION_KEY`), decrypted only inside the userId-scoped repository; cleartext columns are
+  limited to FK/date-range scoping. Protocols and compounds have full create/update UI; vials and doses
+  are also fully editable in place (`updateVial`/`updateDose`) — logging or reconstituting something
+  wrong isn't a delete-and-redo. `peptidePhotos` is a `progressPhotos`-shaped photo gallery scoped to a
+  peptide (or general, if unset) — same whole-file `photoCrypto` encryption, own `storage/peptidePhotos`
+  + owner-checked serve route (`routes/peptides/photos/[id]/file`), reusing `photoCrypto` as-is rather
+  than adding a peptide-specific variant.
 
 `products` (user-owned) and `catalogProducts` (shared global product catalog, seeded from Open
 Food Facts data — see `presetData.ts`/`presets.ts`/`catalogData.json`) are distinct tables;

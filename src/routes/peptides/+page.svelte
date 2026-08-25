@@ -14,9 +14,17 @@
 	let { data }: { data: PageData } = $props();
 	let logOpen = $state(false);
 	let logInitial = $state<{ peptideId?: number; doseMcg?: number | null; protocolId?: number | null } | null>(null);
+	let editingDose = $state<NonNullable<PageData['recent']>[number] | null>(null);
 
 	function openLog(initial: typeof logInitial = null) {
 		logInitial = initial;
+		editingDose = null;
+		logOpen = true;
+	}
+
+	function openEdit(dose: NonNullable<PageData['recent']>[number]) {
+		editingDose = dose;
+		logInitial = null;
 		logOpen = true;
 	}
 
@@ -29,6 +37,13 @@
 
 <PageHeader title="Peptides">
 	{#snippet actions()}
+		<a
+			href="/peptides/photos"
+			aria-label="Progress photos"
+			class="h-9 w-9 flex items-center justify-center rounded-full text-[var(--color-text-muted)] hover:bg-[var(--color-surface-alt)]"
+		>
+			<Icon name="camera" size={18} />
+		</a>
 		<a
 			href="/peptides/manage"
 			aria-label="Manage compounds, protocols & vials"
@@ -160,6 +175,14 @@
 									{fmtDate(dose.date)}{#if dose.site} · {siteLabel(dose.site)}{/if}{#if dose.kind !== 'dose'} · {dose.kind === 'prime' ? 'Prime' : 'Removed'}{/if}
 								</p>
 							</div>
+							<button
+								type="button"
+								aria-label="Edit dose"
+								onclick={() => openEdit(dose)}
+								class="h-8 w-8 flex items-center justify-center rounded-full text-[var(--color-text-muted)] hover:bg-[var(--color-surface-alt)]"
+							>
+								<Icon name="edit" size={15} />
+							</button>
 							<form method="POST" action="?/deleteDose" use:enhance>
 								<input type="hidden" name="id" value={dose.id} />
 								<button
@@ -198,5 +221,6 @@
 		vials={data.activeVials}
 		recentSites={data.siteHistory}
 		initial={logInitial}
+		editing={editingDose}
 	/>
 {/if}
