@@ -344,6 +344,10 @@ export const userSettings = sqliteTable('user_settings', {
 	weightUnit: text('weight_unit').notNull().default('kg'),
 	lengthUnit: text('length_unit').notNull().default('cm'),
 	heightCm: real('height_cm'),
+	/** Opt-in, default off: sends decrypted peptide log data to the AI API to generate an adherence
+	 *  summary (see repositories/peptideInsights.ts). Sensitive enough to require an explicit toggle,
+	 *  unlike the workout coach / weekly digest features which are on by default. */
+	aiPeptideInsightsEnabled: integer('ai_peptide_insights_enabled', { mode: 'boolean' }).notNull().default(false),
 	updatedAt: timestamp('updated_at')
 }, (t) => [
 	check('user_settings_weight_unit_valid', sql`${t.weightUnit} in ('kg', 'lb')`),
@@ -518,3 +522,45 @@ export const peptidePhotos = sqliteTable('peptide_photos', {
 	index('peptide_photos_user_date_idx').on(t.userId, t.date),
 	index('peptide_photos_peptide_idx').on(t.peptideId)
 ]);
+
+/** --- AI features ----------------------------------------------------------------------------------
+ *  All three cache an on-demand LLM call, mirroring the barcodeCache pattern (see api/barcode/[code]):
+ *  never re-call the API for the same "question" once an answer is cached. See src/lib/server/ai/. */
+
+/** Weekly Insights Digest — a plain-language recap of the past 7 days, cached once per (user, ISO week)
+ *  so repeat dashboard visits within the week never re-call the API. */
+export const weeklyDigests = sqliteTable('weekly_digests', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+	/** Monday-anchored ISO date of the week this digest covers (see isoWeekStart in $lib/utils/isoDate). */
+	isoWeekStart: text('iso_week_start').notNull(),
+	model: text('model').notNull(),
+	content: text('content').notNull(),
+	generatedAt: timestamp('generated_at')
+}, (t) => [unique('weekly_digests_user_week_unique').on(t.userId, t.isoWeekStart)]);
+
+/** AI Workout Coach — a progressive-overload / muscle-balance suggestion, cached one row per logged
+ *  session so it can be regenerated (short cooldown) as more sets get logged in the same sitting. Not
+ *  encrypted: workout data has no encryption precedent anywhere else in the schema. */
+export const workoutCoachInsights = sqliteTable('workout_coach_insights', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+	sessionId: integer('session_id').notNull().references(() => workoutSessions.id, { onDelete: 'cascade' }),
+	model: text('model').notNull(),
+	content: text('content').notNull(),
+	generatedAt: timestamp('generated_at')
+}, (t) => [
+	unique('workout_coach_insights_session_unique').on(t.sessionId),
+	index('workout_coach_insights_user_idx').on(t.userId)
+]);
+
+/** Peptide Protocol Insights — an administrative adherence/inventory summary only (never medical/dosing
+ *  advice; enforced by the orchestrator's system prompt, see $lib/server/ai/peptideInsights.ts). Opt-in
+ *  via userSettings.aiPeptideInsightsEnabled, default off. Encrypted at rest like every other peptide
+ *  table — one row per user, overwritten on regenerate. */
+export const peptideInsights = sqliteTable('peptide_insights', {
+	userId: integer('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+	/** Encrypted JSON: { content, model }. AAD-bound to `${userId}:peptide_insights`. */
+	enc: text('enc').notNull(),
+	generatedAt: timestamp('generated_at')
+});

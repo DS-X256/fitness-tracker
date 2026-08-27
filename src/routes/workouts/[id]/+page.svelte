@@ -14,6 +14,7 @@
 	import ExercisePicker from '$lib/components/workouts/ExercisePicker.svelte';
 	import RestTimer from '$lib/components/workouts/RestTimer.svelte';
 	import TrainTogetherModal from '$lib/components/workouts/TrainTogetherModal.svelte';
+	import AiInsightCard from '$lib/components/ai/AiInsightCard.svelte';
 	import { groupIntoBlocks, isSuperset, supersetLabel, type Block } from '$lib/utils/supersets';
 	import { todayIso } from '$lib/utils/todayIso';
 	import { shiftIsoDate } from '$lib/utils/isoDate';
@@ -310,6 +311,17 @@
 				{/each}
 			</div>
 		</section>
+	{/if}
+
+	{#if data.exerciseGroups.length > 0}
+		<AiInsightCard
+			title="AI coaching"
+			disclosure="Sends this session's numbers to Claude to generate this advice."
+			action="?/generateCoachInsight"
+			insight={data.coachInsight}
+			aiAvailable={data.aiAvailable}
+			buttonLabel="Get AI coaching for this session"
+		/>
 	{/if}
 
 	<!-- ── Session hero + Set Ledger — the session's shape at a glance ── -->

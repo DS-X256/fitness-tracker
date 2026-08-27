@@ -15,6 +15,10 @@ import {
 	updateDose
 } from '$lib/server/repositories/peptideDoses';
 import { seedPeptidesForUser } from '$lib/server/peptidePresets';
+import { getSettings, updateSettings } from '$lib/server/repositories/userSettings';
+import { getCached } from '$lib/server/repositories/peptideInsights';
+import { aiAvailable } from '$lib/server/ai/client';
+import { generatePeptideInsight } from '$lib/server/ai/peptideInsights';
 import { todayIso } from '$lib/utils/todayIso';
 import { shiftIsoDate } from '$lib/utils/isoDate';
 import { parseDecimal } from '$lib/utils/parseDecimal';
@@ -56,16 +60,19 @@ export const load: PageServerLoad = async ({ locals }) => {
 	}
 
 	const today = todayIso();
-	const [peptides, protocols, vials, todaysDoses, recent, names, siteHistory, consumedByVial] = await Promise.all([
-		listPeptides(userId),
-		listProtocols(userId, { activeOnly: true }),
-		listVials(userId),
-		dosesOnDate(userId, today),
-		listDoses(userId, { limit: 8 }),
-		peptideNameMap(userId),
-		recentSites(userId, 20),
-		mcgConsumedByVial(userId)
-	]);
+	const [peptides, protocols, vials, todaysDoses, recent, names, siteHistory, consumedByVial, settings] =
+		await Promise.all([
+			listPeptides(userId),
+			listProtocols(userId, { activeOnly: true }),
+			listVials(userId),
+			dosesOnDate(userId, today),
+			listDoses(userId, { limit: 8 }),
+			peptideNameMap(userId),
+			recentSites(userId, 20),
+			mcgConsumedByVial(userId),
+			getSettings(userId)
+		]);
+	const peptideInsight = settings.aiPeptideInsightsEnabled ? await getCached(userId) : null;
 
 	const nameOf = (id: number) => names.get(id)?.name ?? 'Unknown';
 
@@ -163,6 +170,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 		calendar,
 		vialAlerts,
 		siteHistory,
+		aiInsightsEnabled: settings.aiPeptideInsightsEnabled,
+		aiAvailable: aiAvailable(),
+		peptideInsight,
 		recent: recent.map((d) => ({ ...d, peptideName: nameOf(d.peptideId) })),
 		// For the log-dose modal: active containers, with everything the delivery calculators need.
 		activeVials: vials.map((v) => ({
@@ -329,5 +339,17 @@ export const actions: Actions = {
 		if (!Number.isFinite(id)) return fail(400, { error: 'Invalid dose' });
 		await deleteDose(locals.user!.id, id);
 		return { success: true };
+	},
+
+	toggleAiInsights: async ({ request, locals }) => {
+		const enabled = String((await request.formData()).get('enabled') ?? '') === 'true';
+		await updateSettings(locals.user!.id, { aiPeptideInsightsEnabled: enabled });
+		return { success: true };
+	},
+
+	generatePeptideInsight: async ({ locals }) => {
+		const result = await generatePeptideInsight(locals.user!.id);
+		if ('error' in result) return fail(502, { error: result.error });
+		return { insight: result.insight };
 	}
 };

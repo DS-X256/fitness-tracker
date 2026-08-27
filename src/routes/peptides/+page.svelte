@@ -8,6 +8,7 @@
 	import StatCard from '$lib/components/StatCard.svelte';
 	import AdherenceCalendar from '$lib/components/peptides/AdherenceCalendar.svelte';
 	import LogDoseModal from '$lib/components/peptides/LogDoseModal.svelte';
+	import AiInsightCard from '$lib/components/ai/AiInsightCard.svelte';
 	import { formatDose, siteLabel, MEASURE_UNIT_LABELS } from '$lib/utils/peptides';
 	import type { PageData } from './$types';
 
@@ -137,6 +138,19 @@
 			</Card>
 		{/if}
 
+		<!-- AI adherence insights — opt-in, off by default; see the toggle's own disclosure text. -->
+		<AiInsightCard
+			title="AI insights"
+			disclosure="Sends your protocol adherence, inventory, and dose-timing numbers to Claude to generate this summary — never free-text notes."
+			action="?/generatePeptideInsight"
+			insight={data.peptideInsight}
+			aiAvailable={data.aiAvailable}
+			buttonLabel="Generate insight"
+			disabled={!data.aiInsightsEnabled}
+			disabledMessage="Turn on AI adherence insights above to generate a summary."
+			extra={aiToggle}
+		/>
+
 		<!-- Vial alerts -->
 		{#if data.vialAlerts.some((v) => v.expiry || v.low)}
 			<div>
@@ -224,3 +238,24 @@
 		editing={editingDose}
 	/>
 {/if}
+
+{#snippet aiToggle()}
+	<form method="POST" action="?/toggleAiInsights" use:enhance>
+		<input type="hidden" name="enabled" value={String(!data.aiInsightsEnabled)} />
+		<button type="submit" class="flex w-full items-center justify-between gap-3 text-left">
+			<span class="text-sm text-[var(--color-text)]">AI adherence insights</span>
+			<span
+				class={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${data.aiInsightsEnabled ? 'bg-[var(--color-accent)]' : 'bg-[var(--color-surface-alt)]'}`}
+				aria-hidden="true"
+			>
+				<span
+					class={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${data.aiInsightsEnabled ? 'translate-x-[22px]' : 'translate-x-0.5'}`}
+				></span>
+			</span>
+		</button>
+	</form>
+	<p class="text-[0.6875rem] text-[var(--color-text-muted)]">
+		When enabled, your peptide log — compound names, doses, and schedule — is sent to Anthropic's Claude API
+		to generate a plain-language adherence summary. Off by default.
+	</p>
+{/snippet}
