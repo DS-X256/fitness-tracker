@@ -24,7 +24,9 @@ const TIMING_SAMPLE_SIZE = 20;
 
 const SYSTEM_PROMPT = `You are an administrative data-summarization assistant. You will receive structured data about a user's *own logged records* for a self-administered peptide protocol: how many of the doses planned for the current cycle have been logged vs. missed, estimated remaining supply for their inventory, and how consistent dose timing has been relative to the schedule the user set for themselves.
 
-Your only job is to turn this data into a short, readable administrative summary — for example: '12 of 14 planned doses logged this cycle', 'Vial A has about 5 days of supply left at the current rate', 'Doses have trended about 40 minutes later than scheduled this week'.
+Each protocol entry has both a scheduledDoseMcg (the dose configured in the protocol) and loggedDoseMcgValues (the actual dose amounts recorded in the log, one per logged dose). These can differ — the user may log a different amount than the protocol specifies. When you state a dose amount for doses that were logged, you MUST use loggedDoseMcgValues, never scheduledDoseMcg. If loggedDoseMcgValues is empty, don't state a dose amount for that protocol at all. If the logged amounts differ from scheduledDoseMcg, you may note the actual logged amount, but never comment on whether that's appropriate — administrative fact only.
+
+Your only job is to turn this data into a short, readable administrative summary — for example: '12 of 14 planned doses logged this cycle at 300mcg each', 'Vial A has about 5 days of supply left at the current rate', 'Doses have trended about 40 minutes later than scheduled this week'.
 
 You must NOT: give medical, dosing, safety, or efficacy advice or opinion, even if asked; comment on whether a compound, dose, route, or schedule is appropriate, safe, or effective; suggest changes to a dose, frequency, or protocol; or interpret any effect, symptom, or outcome. If the data or a request seems to invite that kind of commentary, state the administrative facts plainly and stop — add no caveats, warnings, or medically-toned language. Describe only the counts, ratios, and durations given to you; never invent a number that isn't in the input; write 3–5 sentences, plain prose.`;
 
@@ -54,12 +56,23 @@ export async function generatePeptideInsight(userId: number): Promise<Result> {
 		const windowStart = shiftIsoDate(today, -(ADHERENCE_WINDOW_DAYS - 1));
 		const from = p.startDate > windowStart ? p.startDate : windowStart;
 		if (from > today) continue;
-		const [logged, planned] = [
-			(await loggedDatesForPeptide(userId, p.peptideId, from, today)).size,
-			scheduledCount(toSchedule(p), from, today)
-		];
+		const planned = scheduledCount(toSchedule(p), from, today);
 		if (planned === 0) continue;
-		protocolSummaries.push({ peptideName: nameOf(p.peptideId), doseMcg: p.doseMcg, plannedThisCycle: planned, loggedThisCycle: logged });
+		// loggedDatesForPeptide (distinct days) drives the count, matching the adherence-day semantics
+		// elsewhere in this app; the actual dose amounts come from a separate decrypt of the same-window
+		// doses, filtered to real doses (excludes priming/removal events, same exclusion as that helper).
+		const [loggedDays, doses] = await Promise.all([
+			loggedDatesForPeptide(userId, p.peptideId, from, today),
+			listDoses(userId, { peptideId: p.peptideId, from, to: today })
+		]);
+		const loggedDoseMcgValues = doses.filter((d) => d.kind === 'dose').map((d) => d.doseMcg);
+		protocolSummaries.push({
+			peptideName: nameOf(p.peptideId),
+			scheduledDoseMcg: p.doseMcg,
+			plannedThisCycle: planned,
+			loggedThisCycle: loggedDays.size,
+			loggedDoseMcgValues
+		});
 	}
 
 	const vialSummaries = vials
