@@ -311,6 +311,7 @@
 			title="Weekly insights"
 			disclosure="Sends this week's numbers to Claude to generate this summary."
 			action="?/generateDigest"
+			regenerateAction="?/regenerateDigest"
 			insight={data.digest}
 			aiAvailable={data.aiAvailable}
 			buttonLabel="Generate this week's insights"

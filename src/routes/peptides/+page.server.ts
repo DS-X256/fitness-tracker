@@ -350,6 +350,6 @@ export const actions: Actions = {
 	generatePeptideInsight: async ({ locals }) => {
 		const result = await generatePeptideInsight(locals.user!.id);
 		if ('error' in result) return fail(502, { error: result.error });
-		return { insight: result.insight };
+		return { insight: result.insight, fromCache: result.fromCache };
 	}
 };

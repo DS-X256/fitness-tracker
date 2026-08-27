@@ -192,12 +192,12 @@ export const actions: Actions = {
 	generateDigest: async ({ locals }) => {
 		const result = await generateWeeklyDigest(locals.user!.id, todayIso());
 		if ('error' in result) return fail(502, { error: result.error });
-		return { insight: result.digest };
+		return { insight: result.digest, fromCache: result.fromCache };
 	},
 
 	regenerateDigest: async ({ locals }) => {
 		const result = await regenerateWeeklyDigest(locals.user!.id, todayIso());
 		if ('error' in result) return fail(502, { error: result.error });
-		return { insight: result.digest };
+		return { insight: result.digest, fromCache: result.fromCache };
 	}
 };

@@ -153,6 +153,6 @@ export const actions: Actions = {
 	generateCoachInsight: async ({ params, locals }) => {
 		const result = await generateCoachInsight(locals.user!.id, Number(params.id));
 		if ('error' in result) return fail(502, { error: result.error });
-		return { insight: result.insight };
+		return { insight: result.insight, fromCache: result.fromCache };
 	}
 };

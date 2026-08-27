@@ -10,6 +10,7 @@
 		title,
 		disclosure,
 		action,
+		regenerateAction = action,
 		insight = null,
 		aiAvailable,
 		buttonLabel = 'Generate insight',
@@ -20,8 +21,12 @@
 		title: string;
 		/** One-line disclosure of what leaves the server when the button is pressed. */
 		disclosure: string;
-		/** Form action, e.g. "?/generateDigest". */
+		/** Form action for the first generation, e.g. "?/generateDigest". */
 		action: string;
+		/** Form action once an insight already exists, e.g. "?/regenerateDigest". Defaults to `action`
+		 *  for features whose single action already handles cooldown-gated regeneration server-side
+		 *  (workout coach, peptide insights); only the weekly digest needs a distinct one. */
+		regenerateAction?: string;
 		insight?: Insight | null;
 		aiAvailable: boolean;
 		buttonLabel?: string;
@@ -38,6 +43,9 @@
 	let current = $state<Insight | null>(insight);
 	let loading = $state(false);
 	let error = $state('');
+	/** Set when a regenerate click came back unchanged because the server-side cooldown hadn't elapsed
+	 *  — without this, a cooldown-blocked click and a broken button look identical to the user. */
+	let onCooldown = $state(false);
 
 	function relativeTime(date: Date): string {
 		const seconds = Math.max(0, Math.round((Date.now() - date.getTime()) / 1000));
@@ -70,19 +78,24 @@
 
 		{#if error}
 			<p class="text-xs text-[var(--color-danger)]">{error}</p>
+		{:else if onCooldown}
+			<p class="text-xs text-[var(--color-text-muted)]">Already up to date — try again in a few minutes.</p>
 		{/if}
 
 		<form
 			method="POST"
-			{action}
+			action={current ? regenerateAction : action}
 			use:enhance={() => {
 				loading = true;
 				error = '';
+				onCooldown = false;
+				const wasRegenerate = current !== null;
 				return async ({ result, update }) => {
 					loading = false;
 					if (result.type === 'success' && result.data?.insight) {
 						const next = result.data.insight as Insight;
 						current = { ...next, generatedAt: new Date(next.generatedAt) };
+						onCooldown = wasRegenerate && result.data?.fromCache === true;
 					} else if (result.type === 'failure' && result.data?.error) {
 						error = String(result.data.error);
 					}
