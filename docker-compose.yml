@@ -13,6 +13,9 @@ services:
       # adapter-node rejects request bodies over 512KB by default, which would block photo uploads
       # (app-level limits are 8MB meal / 12MB progress) — 16M leaves headroom for multipart overhead.
       BODY_SIZE_LIMIT: 16M
+      # Powers the optional AI features (workout coach, weekly digest, peptide insights) — see
+      # .env.example. Passed through from your .env; leave unset to disable those features.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
     volumes:
       - fitness-data:/data
 
