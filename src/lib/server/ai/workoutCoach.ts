@@ -3,7 +3,7 @@
 // then asks Sonnet for a progressive-overload + muscle-balance suggestion. Cached per session, with a
 // short cooldown since a user may log more sets mid-session and want updated numbers.
 
-import { generateText, AI_MODEL_SONNET } from './client';
+import { generateText, AI_MODEL_SONNET, AI_DAILY_LIMIT_PER_USER } from './client';
 import { getCached, save, type CoachInsight } from '$lib/server/repositories/workoutCoachInsights';
 import { getSessionWithSets } from '$lib/server/repositories/workouts';
 import { getExerciseProgress, weeklySetsByMuscleGroup } from '$lib/server/repositories/progress';
@@ -53,12 +53,18 @@ export async function generateCoachInsight(userId: number, sessionId: number): P
 	const input = { sessionDate: result.session.date, exercises, muscleGroupSets };
 
 	const aiResult = await generateText({
+		userId,
 		model: AI_MODEL_SONNET,
 		system: SYSTEM_PROMPT,
 		prompt: JSON.stringify(input),
 		maxTokens: 768
 	});
-	if (!aiResult) return { error: 'AI is not configured or the request failed. Try again later.' };
+	if (!aiResult.ok) {
+		if (aiResult.reason === 'rate_limited') {
+			return { error: `You've reached today's AI usage limit (${AI_DAILY_LIMIT_PER_USER} requests). Try again tomorrow.` };
+		}
+		return { error: 'AI is not configured or the request failed. Try again later.' };
+	}
 
 	const insight = await save(userId, sessionId, aiResult.text.trim(), aiResult.model);
 	return { insight, fromCache: false };

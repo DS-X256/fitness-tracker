@@ -16,6 +16,8 @@ services:
       # Powers the optional AI features (workout coach, weekly digest, peptide insights) — see
       # .env.example. Passed through from your .env; leave unset to disable those features.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      # Per-user daily cap across all three AI features combined — see .env.example.
+      AI_DAILY_LIMIT_PER_USER: ${AI_DAILY_LIMIT_PER_USER:-15}
     volumes:
       - fitness-data:/data
 

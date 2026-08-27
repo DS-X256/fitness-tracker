@@ -6,7 +6,7 @@
 // ⚠️ Scope constraint (see SYSTEM_PROMPT below): this must stay administrative/adherence-summary only —
 // never medical, dosing, safety, or efficacy commentary. Don't "improve" the prompt toward that later.
 
-import { generateText, AI_MODEL_HAIKU } from './client';
+import { generateText, AI_MODEL_HAIKU, AI_DAILY_LIMIT_PER_USER } from './client';
 import { getCached, save, type PeptideInsight } from '$lib/server/repositories/peptideInsights';
 import { getSettings } from '$lib/server/repositories/userSettings';
 import { listProtocols, toSchedule } from '$lib/server/repositories/peptideProtocols';
@@ -95,12 +95,18 @@ export async function generatePeptideInsight(userId: number): Promise<Result> {
 	const input = { protocols: protocolSummaries, vials: vialSummaries, timingOffsetMinutes };
 
 	const aiResult = await generateText({
+		userId,
 		model: AI_MODEL_HAIKU,
 		system: SYSTEM_PROMPT,
 		prompt: JSON.stringify(input),
 		maxTokens: 512
 	});
-	if (!aiResult) return { error: 'AI is not configured or the request failed. Try again later.' };
+	if (!aiResult.ok) {
+		if (aiResult.reason === 'rate_limited') {
+			return { error: `You've reached today's AI usage limit (${AI_DAILY_LIMIT_PER_USER} requests). Try again tomorrow.` };
+		}
+		return { error: 'AI is not configured or the request failed. Try again later.' };
+	}
 
 	const insight = await save(userId, aiResult.text.trim(), aiResult.model);
 	return { insight, fromCache: false };

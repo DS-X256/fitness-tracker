@@ -564,3 +564,14 @@ export const peptideInsights = sqliteTable('peptide_insights', {
 	enc: text('enc').notNull(),
 	generatedAt: timestamp('generated_at')
 });
+
+/** Shared daily quota across all three AI features (see $lib/server/ai/client.ts's generateText) —
+ *  the per-feature cooldowns each throttle how often *one* thing can be regenerated, but don't cap
+ *  total spend across a day (many different sessions, many different regenerate clicks). One row per
+ *  user per calendar day, incremented only on a successful (non-cached, non-failed) API call. */
+export const aiUsageDaily = sqliteTable('ai_usage_daily', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+	date: text('date').notNull(),
+	count: integer('count').notNull().default(0)
+}, (t) => [unique('ai_usage_daily_user_date_unique').on(t.userId, t.date)]);
