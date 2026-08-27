@@ -19,3 +19,12 @@ export function shiftIsoDate(iso: string, days: number): string {
 	const dd = String(dt.getDate()).padStart(2, '0');
 	return `${yy}-${mm}-${dd}`;
 }
+
+/** The Monday of the week containing `iso` (built at local noon, same DST-safe approach as shiftIsoDate).
+ *  Used to key the weekly AI digest cache — one row per (user, isoWeekStart). */
+export function isoWeekStart(iso: string): string {
+	const [y, m, d] = iso.split('-').map(Number);
+	const day = new Date(y, m - 1, d, 12).getDay(); // 0 = Sunday … 6 = Saturday
+	const offset = day === 0 ? -6 : 1 - day; // shift back to Monday
+	return shiftIsoDate(iso, offset);
+}

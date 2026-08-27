@@ -180,6 +180,12 @@ export async function deleteUser(actingId: number, userId: number) {
 	// schema and guarantees complete removal.
 	const u = userId;
 	db.transaction((tx) => {
+		// AI-feature caches (real ON DELETE cascade on these newly-generated tables, but deleted
+		// explicitly anyway for consistency with every other user-owned table here — see the FK caveat
+		// above). workout_coach_insights references workout_sessions, so it goes first.
+		tx.run(sql`delete from workout_coach_insights where user_id = ${u}`);
+		tx.run(sql`delete from weekly_digests where user_id = ${u}`);
+		tx.run(sql`delete from peptide_insights where user_id = ${u}`);
 		// leaf rows that hang off the user's exercises / sessions / plans
 		tx.run(sql`delete from workout_sets where session_id in (select id from workout_sessions where user_id = ${u}) or exercise_id in (select id from exercises where user_id = ${u})`);
 		tx.run(sql`delete from exercise_goals where exercise_id in (select id from exercises where user_id = ${u})`);

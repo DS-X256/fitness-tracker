@@ -3,18 +3,34 @@ import { userSettings } from '$lib/server/db/schema';
 import { eq } from 'drizzle-orm';
 import type { LengthUnit, WeightUnit } from '$lib/utils/units';
 
-export type UserSettings = { weightUnit: WeightUnit; lengthUnit: LengthUnit; heightCm: number | null };
+export type UserSettings = {
+	weightUnit: WeightUnit;
+	lengthUnit: LengthUnit;
+	heightCm: number | null;
+	/** Opt-in, default off — see repositories/peptideInsights.ts. */
+	aiPeptideInsightsEnabled: boolean;
+};
 
-const DEFAULTS: UserSettings = { weightUnit: 'kg', lengthUnit: 'cm', heightCm: null };
+const DEFAULTS: UserSettings = { weightUnit: 'kg', lengthUnit: 'cm', heightCm: null, aiPeptideInsightsEnabled: false };
 
-/** One row per user, created lazily. Absent row = defaults (metric, no height). */
+/** One row per user, created lazily. Absent row = defaults (metric, no height, AI insights off). */
 export async function getSettings(userId: number): Promise<UserSettings> {
 	const [row] = await db
-		.select({ weightUnit: userSettings.weightUnit, lengthUnit: userSettings.lengthUnit, heightCm: userSettings.heightCm })
+		.select({
+			weightUnit: userSettings.weightUnit,
+			lengthUnit: userSettings.lengthUnit,
+			heightCm: userSettings.heightCm,
+			aiPeptideInsightsEnabled: userSettings.aiPeptideInsightsEnabled
+		})
 		.from(userSettings)
 		.where(eq(userSettings.userId, userId));
 	if (!row) return { ...DEFAULTS };
-	return { weightUnit: row.weightUnit as WeightUnit, lengthUnit: row.lengthUnit as LengthUnit, heightCm: row.heightCm };
+	return {
+		weightUnit: row.weightUnit as WeightUnit,
+		lengthUnit: row.lengthUnit as LengthUnit,
+		heightCm: row.heightCm,
+		aiPeptideInsightsEnabled: row.aiPeptideInsightsEnabled
+	};
 }
 
 export async function updateSettings(userId: number, patch: Partial<UserSettings>): Promise<UserSettings> {
@@ -22,7 +38,8 @@ export async function updateSettings(userId: number, patch: Partial<UserSettings
 	const next: UserSettings = {
 		weightUnit: patch.weightUnit ?? current.weightUnit,
 		lengthUnit: patch.lengthUnit ?? current.lengthUnit,
-		heightCm: patch.heightCm !== undefined ? patch.heightCm : current.heightCm
+		heightCm: patch.heightCm !== undefined ? patch.heightCm : current.heightCm,
+		aiPeptideInsightsEnabled: patch.aiPeptideInsightsEnabled ?? current.aiPeptideInsightsEnabled
 	};
 
 	if (next.weightUnit !== 'kg' && next.weightUnit !== 'lb') throw new Error('Invalid weight unit');

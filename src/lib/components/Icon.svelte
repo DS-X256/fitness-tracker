@@ -29,7 +29,8 @@
 		| 'clock'
 		| 'alert'
 		| 'users'
-		| 'move-horizontal';
+		| 'move-horizontal'
+		| 'sparkles';
 
 	let { name, size = 22, class: className = '' }: { name: IconName; size?: number; class?: string } =
 		$props();
@@ -147,5 +148,8 @@
 		<path d="M18 8l4 4-4 4" />
 		<path d="M6 8l-4 4 4 4" />
 		<path d="M2 12h20" />
+	{:else if name === 'sparkles'}
+		<path d="M11 3l1.4 3.6L16 8l-3.6 1.4L11 13l-1.4-3.6L6 8l3.6-1.4L11 3Z" />
+		<path d="M18.5 14l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2Z" />
 	{/if}
 </svg>

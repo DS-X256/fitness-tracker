@@ -30,6 +30,7 @@
 		"vite": "^8.0.16"
 	},
 	"dependencies": {
+		"@anthropic-ai/sdk": "^0.121.0",
 		"@fontsource/fraunces": "^5.2.9",
 		"@fontsource/inter": "^5.2.8",
 		"@zxing/browser": "^0.2.1",

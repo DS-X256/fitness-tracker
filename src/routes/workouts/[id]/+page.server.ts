@@ -12,6 +12,9 @@ import { listExercises, createExercise } from '$lib/server/repositories/exercise
 import { getPlan } from '$lib/server/repositories/workoutPlans';
 import { goalsByExercise } from '$lib/server/repositories/exerciseGoals';
 import { listTrainingPartners, inviteToTrainTogether, removeMember } from '$lib/server/repositories/workoutGroups';
+import { getCached } from '$lib/server/repositories/workoutCoachInsights';
+import { aiAvailable } from '$lib/server/ai/client';
+import { generateCoachInsight } from '$lib/server/ai/workoutCoach';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, locals, depends }) => {
@@ -47,7 +50,9 @@ export const load: PageServerLoad = async ({ params, locals, depends }) => {
 		planName: plan?.plan.name ?? null,
 		goalsByExercise: await goalsByExercise(userId),
 		trainingPartners: partners,
-		selfMemberId
+		selfMemberId,
+		coachInsight: await getCached(userId, id),
+		aiAvailable: aiAvailable()
 	};
 };
 
@@ -143,5 +148,11 @@ export const actions: Actions = {
 		if (!Number.isFinite(memberId)) return fail(400, { error: 'Invalid member' });
 		await removeMember(locals.user!.id, memberId);
 		return { success: true };
+	},
+
+	generateCoachInsight: async ({ params, locals }) => {
+		const result = await generateCoachInsight(locals.user!.id, Number(params.id));
+		if ('error' in result) return fail(502, { error: result.error });
+		return { insight: result.insight };
 	}
 };

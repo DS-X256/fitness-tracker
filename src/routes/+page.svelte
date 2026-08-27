@@ -10,6 +10,7 @@
 	import SettingsModal from '$lib/components/SettingsModal.svelte';
 	import HintCard from '$lib/components/HintCard.svelte';
 	import StatCard from '$lib/components/StatCard.svelte';
+	import AiInsightCard from '$lib/components/ai/AiInsightCard.svelte';
 	import { formatPortions } from '$lib/utils/formatPortions';
 	import type { PageData } from './$types';
 
@@ -303,6 +304,17 @@
 				{/if}
 			</Card>
 		</div>
+	{/if}
+
+	{#if data.week.daysLogged > 0 || data.week.workouts > 0}
+		<AiInsightCard
+			title="Weekly insights"
+			disclosure="Sends this week's numbers to Claude to generate this summary."
+			action="?/generateDigest"
+			insight={data.digest}
+			aiAvailable={data.aiAvailable}
+			buttonLabel="Generate this week's insights"
+		/>
 	{/if}
 </div>
 

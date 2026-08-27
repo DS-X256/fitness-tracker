@@ -17,8 +17,11 @@ import {
 	deleteEntry
 } from '$lib/server/repositories/nutritionLog';
 import { todayIso } from '$lib/utils/todayIso';
-import { shiftIsoDate } from '$lib/utils/isoDate';
+import { shiftIsoDate, isoWeekStart } from '$lib/utils/isoDate';
 import { parseDecimal } from '$lib/utils/parseDecimal';
+import { getForWeek } from '$lib/server/repositories/weeklyDigests';
+import { aiAvailable } from '$lib/server/ai/client';
+import { generateWeeklyDigest, regenerateWeeklyDigest } from '$lib/server/ai/weeklyDigest';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -27,7 +30,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	// This week: the last 7 calendar days of food + training, averaged over days actually logged.
 	const weekFrom = shiftIsoDate(today, -6);
 
-	const [targets, summary, entries, sessions, goals, exerciseProgress, meals, products, recentDays, muscleSets] =
+	const [targets, summary, entries, sessions, goals, exerciseProgress, meals, products, recentDays, muscleSets, digest] =
 		await Promise.all([
 			getTargets(userId),
 			daySummary(userId, today),
@@ -38,7 +41,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 			listMeals(userId),
 			listProducts(userId),
 			recentDaySummaries(userId, 30),
-			weeklySetsByMuscleGroup(userId, weekFrom, today)
+			weeklySetsByMuscleGroup(userId, weekFrom, today),
+			getForWeek(userId, isoWeekStart(today))
 		]);
 
 	const weekDays = recentDays.filter((d) => d.date >= weekFrom);
@@ -102,6 +106,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 		entries,
 		todayWorkout,
 		week,
+		digest,
+		aiAvailable: aiAvailable(),
 		goals: goals.slice(0, 3),
 		exerciseProgress,
 		logMeals: meals.map((m) => ({ id: m.id, name: m.name, portions: m.portions, totalMacros: m.totalMacros })),
@@ -181,5 +187,17 @@ export const actions: Actions = {
 			return fail(400, { error: e instanceof Error ? e.message : 'Could not log' });
 		}
 		return { success: true };
+	},
+
+	generateDigest: async ({ locals }) => {
+		const result = await generateWeeklyDigest(locals.user!.id, todayIso());
+		if ('error' in result) return fail(502, { error: result.error });
+		return { insight: result.digest };
+	},
+
+	regenerateDigest: async ({ locals }) => {
+		const result = await regenerateWeeklyDigest(locals.user!.id, todayIso());
+		if ('error' in result) return fail(502, { error: result.error });
+		return { insight: result.digest };
 	}
 };
