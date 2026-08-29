@@ -8,7 +8,8 @@
 		{ href: '/shopping-list', label: 'Shopping', icon: 'cart' as const },
 		{ href: '/workouts', label: 'Workouts', icon: 'dumbbell' as const },
 		// Health groups the Body suite + Peptides behind one slot (see HealthNav for the sub-tabs).
-		{ href: '/body', label: 'Health', icon: 'health' as const, match: ['/body', '/peptides'] }
+		{ href: '/body', label: 'Health', icon: 'health' as const, match: ['/body', '/peptides'] },
+		{ href: '/assistant', label: 'Coach', icon: 'sparkles' as const }
 	];
 
 	function isActive(item: { href: string; match?: string[] }) {

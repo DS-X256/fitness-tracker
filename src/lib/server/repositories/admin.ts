@@ -186,7 +186,12 @@ export async function deleteUser(actingId: number, userId: number) {
 		tx.run(sql`delete from workout_coach_insights where user_id = ${u}`);
 		tx.run(sql`delete from weekly_digests where user_id = ${u}`);
 		tx.run(sql`delete from peptide_insights where user_id = ${u}`);
+		tx.run(sql`delete from nutrition_insights where user_id = ${u}`);
+		tx.run(sql`delete from body_insights where user_id = ${u}`);
 		tx.run(sql`delete from ai_usage_daily where user_id = ${u}`);
+		// AI Coach conversation: messages reference threads, so messages go first.
+		tx.run(sql`delete from assistant_messages where user_id = ${u}`);
+		tx.run(sql`delete from assistant_threads where user_id = ${u}`);
 		// leaf rows that hang off the user's exercises / sessions / plans
 		tx.run(sql`delete from workout_sets where session_id in (select id from workout_sessions where user_id = ${u}) or exercise_id in (select id from exercises where user_id = ${u})`);
 		tx.run(sql`delete from exercise_goals where exercise_id in (select id from exercises where user_id = ${u})`);

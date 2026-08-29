@@ -348,6 +348,10 @@ export const userSettings = sqliteTable('user_settings', {
 	 *  summary (see repositories/peptideInsights.ts). Sensitive enough to require an explicit toggle,
 	 *  unlike the workout coach / weekly digest features which are on by default. */
 	aiPeptideInsightsEnabled: integer('ai_peptide_insights_enabled', { mode: 'boolean' }).notNull().default(false),
+	/** Opt-in, default off: enables the conversational AI Coach (see $lib/server/ai/assistant.ts), which
+	 *  sends decrypted cross-domain data (nutrition, workouts, body, peptides — whatever a question touches)
+	 *  to the AI API. Sensitive enough to require an explicit toggle, same reasoning as the peptide flag. */
+	aiAssistantEnabled: integer('ai_assistant_enabled', { mode: 'boolean' }).notNull().default(false),
 	updatedAt: timestamp('updated_at')
 }, (t) => [
 	check('user_settings_weight_unit_valid', sql`${t.weightUnit} in ('kg', 'lb')`),
@@ -565,6 +569,25 @@ export const peptideInsights = sqliteTable('peptide_insights', {
 	generatedAt: timestamp('generated_at')
 });
 
+/** Nutrition Insights — a plain-language read on recent macro/calorie trends vs. targets, cached one
+ *  row per user and overwritten on regenerate (short cooldown). Not encrypted: nutrition data has no
+ *  encryption precedent, same as the workout coach. */
+export const nutritionInsights = sqliteTable('nutrition_insights', {
+	userId: integer('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+	model: text('model').notNull(),
+	content: text('content').notNull(),
+	generatedAt: timestamp('generated_at')
+});
+
+/** Body Insights — a plain-language read on weight trend/rate, goal ETA, and BMI, cached one row per
+ *  user and overwritten on regenerate. Not encrypted, same reasoning as nutrition/workout data. */
+export const bodyInsights = sqliteTable('body_insights', {
+	userId: integer('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+	model: text('model').notNull(),
+	content: text('content').notNull(),
+	generatedAt: timestamp('generated_at')
+});
+
 /** Shared daily quota across all three AI features (see $lib/server/ai/client.ts's generateText) —
  *  the per-feature cooldowns each throttle how often *one* thing can be regenerated, but don't cap
  *  total spend across a day (many different sessions, many different regenerate clicks). One row per
@@ -575,3 +598,32 @@ export const aiUsageDaily = sqliteTable('ai_usage_daily', {
 	date: text('date').notNull(),
 	count: integer('count').notNull().default(0)
 }, (t) => [unique('ai_usage_daily_user_date_unique').on(t.userId, t.date)]);
+
+/** --- AI Coach (conversational assistant) -----------------------------------------------------------
+ *  A persisted chat with the cross-domain AI coach (see $lib/server/ai/assistant.ts). Unlike the three
+ *  cached one-shot insight features above, this is an ongoing conversation with tool access to the
+ *  user's own data. Encrypted at rest like the peptide tables: a thread can discuss health/peptide
+ *  detail, so it's exactly as sensitive as that data. Opt-in via userSettings.aiAssistantEnabled. */
+export const assistantThreads = sqliteTable('assistant_threads', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+	/** Optional short label; the UI uses a single active thread per user in v1, but the table shape
+	 *  keeps multiple named threads open as a future extension without another migration. */
+	title: text('title'),
+	createdAt: timestamp('created_at'),
+	updatedAt: timestamp('updated_at')
+}, (t) => [index('assistant_threads_user_idx').on(t.userId)]);
+
+export const assistantMessages = sqliteTable('assistant_messages', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+	threadId: integer('thread_id').notNull().references(() => assistantThreads.id, { onDelete: 'cascade' }),
+	/** Cleartext 'user' | 'assistant' — a bare role reveals turn structure, not content. */
+	role: text('role').notNull(),
+	/** Encrypted JSON: { content, model? }. AAD-bound to `${userId}:assistant_messages`. */
+	enc: text('enc').notNull(),
+	createdAt: timestamp('created_at')
+}, (t) => [
+	index('assistant_messages_thread_idx').on(t.threadId),
+	index('assistant_messages_user_idx').on(t.userId)
+]);

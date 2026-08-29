@@ -9,9 +9,17 @@ export type UserSettings = {
 	heightCm: number | null;
 	/** Opt-in, default off — see repositories/peptideInsights.ts. */
 	aiPeptideInsightsEnabled: boolean;
+	/** Opt-in, default off — the conversational AI Coach (see ai/assistant.ts). */
+	aiAssistantEnabled: boolean;
 };
 
-const DEFAULTS: UserSettings = { weightUnit: 'kg', lengthUnit: 'cm', heightCm: null, aiPeptideInsightsEnabled: false };
+const DEFAULTS: UserSettings = {
+	weightUnit: 'kg',
+	lengthUnit: 'cm',
+	heightCm: null,
+	aiPeptideInsightsEnabled: false,
+	aiAssistantEnabled: false
+};
 
 /** One row per user, created lazily. Absent row = defaults (metric, no height, AI insights off). */
 export async function getSettings(userId: number): Promise<UserSettings> {
@@ -20,7 +28,8 @@ export async function getSettings(userId: number): Promise<UserSettings> {
 			weightUnit: userSettings.weightUnit,
 			lengthUnit: userSettings.lengthUnit,
 			heightCm: userSettings.heightCm,
-			aiPeptideInsightsEnabled: userSettings.aiPeptideInsightsEnabled
+			aiPeptideInsightsEnabled: userSettings.aiPeptideInsightsEnabled,
+			aiAssistantEnabled: userSettings.aiAssistantEnabled
 		})
 		.from(userSettings)
 		.where(eq(userSettings.userId, userId));
@@ -29,7 +38,8 @@ export async function getSettings(userId: number): Promise<UserSettings> {
 		weightUnit: row.weightUnit as WeightUnit,
 		lengthUnit: row.lengthUnit as LengthUnit,
 		heightCm: row.heightCm,
-		aiPeptideInsightsEnabled: row.aiPeptideInsightsEnabled
+		aiPeptideInsightsEnabled: row.aiPeptideInsightsEnabled,
+		aiAssistantEnabled: row.aiAssistantEnabled
 	};
 }
 
@@ -39,7 +49,8 @@ export async function updateSettings(userId: number, patch: Partial<UserSettings
 		weightUnit: patch.weightUnit ?? current.weightUnit,
 		lengthUnit: patch.lengthUnit ?? current.lengthUnit,
 		heightCm: patch.heightCm !== undefined ? patch.heightCm : current.heightCm,
-		aiPeptideInsightsEnabled: patch.aiPeptideInsightsEnabled ?? current.aiPeptideInsightsEnabled
+		aiPeptideInsightsEnabled: patch.aiPeptideInsightsEnabled ?? current.aiPeptideInsightsEnabled,
+		aiAssistantEnabled: patch.aiAssistantEnabled ?? current.aiAssistantEnabled
 	};
 
 	if (next.weightUnit !== 'kg' && next.weightUnit !== 'lb') throw new Error('Invalid weight unit');

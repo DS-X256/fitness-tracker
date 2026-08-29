@@ -12,6 +12,9 @@ import {
 } from '$lib/server/repositories/bodyMetrics';
 import { deleteWeightGoal, goalProgress, upsertWeightGoal } from '$lib/server/repositories/weightGoals';
 import { listPhotos } from '$lib/server/repositories/progressPhotos';
+import { getCached } from '$lib/server/repositories/bodyInsights';
+import { generateBodyInsight } from '$lib/server/ai/bodyInsights';
+import { aiAvailable } from '$lib/server/ai/client';
 import { todayIso } from '$lib/utils/todayIso';
 import { parseDecimal } from '$lib/utils/parseDecimal';
 import { displayToCm, displayToKg } from '$lib/utils/units';
@@ -19,7 +22,7 @@ import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const userId = locals.user!.id;
-	const [settings, stats, trend, goal, latest, today, recent, photos] = await Promise.all([
+	const [settings, stats, trend, goal, latest, today, recent, photos, insight] = await Promise.all([
 		getSettings(userId),
 		weightStats(userId),
 		weightTrend(userId, { days: 180 }),
@@ -27,7 +30,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 		latestBodyMetric(userId),
 		getBodyMetric(userId, todayIso()),
 		listBodyMetrics(userId, { limit: 10 }),
-		listPhotos(userId)
+		listPhotos(userId),
+		getCached(userId)
 	]);
 
 	return {
@@ -39,7 +43,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 		today,
 		recent,
 		photos: photos.slice(0, 6),
-		photoCount: photos.length
+		photoCount: photos.length,
+		insight,
+		aiAvailable: aiAvailable()
 	};
 };
 
@@ -115,6 +121,12 @@ export const actions: Actions = {
 	deleteGoal: async ({ locals }) => {
 		await deleteWeightGoal(locals.user!.id);
 		return { success: true };
+	},
+
+	generateBodyInsight: async ({ locals }) => {
+		const result = await generateBodyInsight(locals.user!.id);
+		if ('error' in result) return fail(502, { error: result.error });
+		return { insight: result.insight, fromCache: result.fromCache };
 	},
 
 	saveProfile: async ({ request, locals }) => {

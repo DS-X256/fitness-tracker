@@ -31,7 +31,10 @@ export const AI_DAILY_LIMIT_PER_USER = (() => {
 // undefined = not yet resolved; null = configured-as-absent; Anthropic = the client.
 let client: Anthropic | null | undefined;
 
-function getClient(): Anthropic | null {
+/** The shared Anthropic client, or null when no key is configured. Exported so the streaming chat
+ *  assistant (which can't use the one-shot generateText path) can drive `client.messages.stream()`
+ *  directly while still resolving the API key in this one place. */
+export function getClient(): Anthropic | null {
 	if (client !== undefined) return client;
 	const apiKey = env.ANTHROPIC_API_KEY?.trim();
 	// Short timeout + a single retry: these calls run synchronously inside a page action, not a
