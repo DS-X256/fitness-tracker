@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { tick } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import Card from '$lib/components/Card.svelte';
 	import Button from '$lib/components/Button.svelte';
@@ -26,9 +26,19 @@
 		'Are my logged peptide doses matching my protocol?'
 	];
 
-	async function scrollToBottom() {
+	function isNearBottom(): boolean {
+		if (!scrollEl) return true;
+		return scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 80;
+	}
+
+	/** Stick to the bottom as content streams in — but only if the user is already near the bottom, so
+	 *  scrolling up to re-read earlier messages isn't yanked back down. `force` overrides that (used when
+	 *  the user sends, so their own message always scrolls into view). Checks position before the DOM
+	 *  grows, then scrolls after. */
+	async function scrollToBottom(force = false) {
+		const near = isNearBottom();
 		await tick();
-		scrollEl?.scrollTo({ top: scrollEl.scrollHeight });
+		if (force || near) scrollEl?.scrollTo({ top: scrollEl.scrollHeight });
 	}
 
 	function handleEvent(ev: { type: string; text?: string; label?: string; message?: string }) {
@@ -60,7 +70,7 @@
 		liveText = '';
 		toolStatus = '';
 		error = '';
-		scrollToBottom();
+		scrollToBottom(true);
 
 		try {
 			const res = await fetch('/api/assistant/chat', {
@@ -101,6 +111,9 @@
 			}
 		}
 	}
+
+	// Open on the latest message, like any chat.
+	onMount(() => scrollToBottom(true));
 
 	function onKeydown(e: KeyboardEvent) {
 		if (e.key === 'Enter' && !e.shiftKey) {
@@ -180,8 +193,8 @@
 		</Card>
 	</div>
 {:else}
-	<div class="mx-auto flex max-w-md flex-col" style="height: calc(100dvh - 8rem)">
-		<div bind:this={scrollEl} class="flex-1 overflow-y-auto px-4 pb-4 space-y-3">
+	<div class="mx-auto flex w-full max-w-md flex-1 flex-col min-h-0">
+		<div bind:this={scrollEl} class="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-3">
 			{#if messages.length === 0 && !streaming}
 				<div class="pt-6 space-y-4">
 					<div class="text-center space-y-1.5">
@@ -233,7 +246,7 @@
 			{/if}
 		</div>
 
-		<div class="border-t border-[var(--color-border)] bg-[var(--color-bg)] px-4 py-3">
+		<div class="shrink-0 border-t border-[var(--color-border)] bg-[var(--color-bg)] px-4 py-3">
 			<div class="flex items-end gap-2">
 				<textarea
 					bind:value={input}
