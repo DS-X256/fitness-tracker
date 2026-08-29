@@ -3,6 +3,7 @@
 	import Card from '$lib/components/Card.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
+	import AiInsightCard from '$lib/components/ai/AiInsightCard.svelte';
 	import { shiftIsoDate } from '$lib/utils/isoDate';
 	import type { PageData } from './$types';
 
@@ -29,6 +30,15 @@
 			description="Each day you log food shows up here, ready to look back on — or fix if you forgot something."
 		/>
 	{:else}
+		<AiInsightCard
+			title="Nutrition insights"
+			disclosure="Sends your recent calorie/macro averages and targets to Claude to generate this summary."
+			action="?/generateNutritionInsight"
+			insight={data.insight}
+			aiAvailable={data.aiAvailable}
+			buttonLabel="Generate insight"
+		/>
+
 		{#each data.days as day (day.date)}
 			<Card href={`/diary/${day.date}`}>
 				<div class="flex items-center justify-between gap-2">

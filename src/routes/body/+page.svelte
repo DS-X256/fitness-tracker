@@ -11,6 +11,7 @@
 	import LogBodyMetricsModal from '$lib/components/body/LogBodyMetricsModal.svelte';
 	import WeightGoalModal from '$lib/components/body/WeightGoalModal.svelte';
 	import BodyProfileModal from '$lib/components/body/BodyProfileModal.svelte';
+	import AiInsightCard from '$lib/components/ai/AiInsightCard.svelte';
 	import { cmToDisplay, formatLength, formatWeight, kgToDisplay, round1 } from '$lib/utils/units';
 	import { bmiCategory, bmiCategoryLabel, computeBmi } from '$lib/utils/bmi';
 	import type { PageData } from './$types';
@@ -141,6 +142,17 @@
 			<h2 class="section-label mb-2">Trend</h2>
 			<BodyTrendChart points={data.trend} unit={wUnit} />
 		</Card>
+	{/if}
+
+	{#if data.stats}
+		<AiInsightCard
+			title="Body insights"
+			disclosure="Sends your weight trend, rate, goal progress, and BMI to Claude to generate this summary."
+			action="?/generateBodyInsight"
+			insight={data.insight}
+			aiAvailable={data.aiAvailable}
+			buttonLabel="Generate insight"
+		/>
 	{/if}
 
 	{#if measurements.length > 0}
