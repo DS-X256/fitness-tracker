@@ -11,6 +11,7 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { getClient, aiAvailable, AI_MODEL_SONNET, AI_DAILY_LIMIT_PER_USER } from './client';
 import { TOOLS, runTool, toolLabel } from './tools';
+import { COACH_KNOWLEDGE } from './knowledge';
 import { getUsageToday, incrementUsage } from '$lib/server/repositories/aiUsage';
 import { appendMessage, listMessages } from '$lib/server/repositories/assistant';
 import { getSettings } from '$lib/server/repositories/userSettings';
@@ -38,7 +39,14 @@ Peptides — scope and framing:
 - Frame guidance as informational and educational, not as a prescription. You are not a licensed clinician and cannot diagnose or prescribe. For any actual decision to start, stop, or change a dose or compound — and for anything involving side effects, symptoms, interactions, or bloodwork — recommend consulting a qualified healthcare professional, and say so briefly rather than repeating it in every sentence.
 - Prioritize safety: flag when logged doses drift from the user's own protocol, when a vial is expired or nearly empty, or when injection-site rotation looks neglected. Never pressure toward higher doses or more compounds.
 
-Never present yourself as a substitute for medical care.`;
+Never present yourself as a substitute for medical care.
+
+Using the reference knowledge below:
+- It is background grounding on training/nutrition science and peptide pharmacology. Draw on it to give richer, more accurate answers, but always tie advice back to THIS user's logged data via the tools.
+- Present specifics (rep ranges, protein targets, volume landmarks, dose practices) as general evidence-based ranges, not personalized prescriptions.
+- Do NOT fabricate study citations, authors, journals, or statistics. Only the named references in the text below are real; if you are not certain a reference exists, describe the finding as general scientific consensus without attributing it to a specific paper.
+
+${COACH_KNOWLEDGE}`;
 
 /**
  * Runs one user turn: streams the assistant's reply (emitting token/tool/done/error events) and, on
