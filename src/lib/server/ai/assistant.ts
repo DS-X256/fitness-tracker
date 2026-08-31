@@ -11,6 +11,7 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { getClient, aiAvailable, AI_MODEL_SONNET, AI_DAILY_LIMIT_PER_USER } from './client';
 import { TOOLS, runTool, toolLabel } from './tools';
+import { RESEARCH_TOOLS, runResearchTool, researchToolLabel } from './peptideResearch';
 import { COACH_KNOWLEDGE } from './knowledge';
 import { getUsageToday, incrementUsage } from '$lib/server/repositories/aiUsage';
 import { appendMessage, listMessages } from '$lib/server/repositories/assistant';
@@ -19,6 +20,11 @@ import { todayIso } from '$lib/utils/todayIso';
 
 const MAX_TOOL_STEPS = 6;
 const MAX_TOKENS = 1536;
+
+/** The userId-scoped data tools plus the stateless external research tool(s), combined once here so
+ *  tools.ts can stay scoped to its own doc comment ("thin wrappers over existing repositories, no new
+ *  query logic") and peptideResearch.ts can stay scoped to its (external HTTP, no userId anywhere). */
+const ALL_TOOLS: Anthropic.Tool[] = [...TOOLS, ...RESEARCH_TOOLS];
 
 export type AssistantEvent =
 	| { type: 'token'; text: string }
@@ -33,6 +39,12 @@ Grounding rules:
 - If the data needed isn't available (no tool covers it, or the tool returns empty), say so plainly instead of fabricating.
 - Be concise and practical: a few short paragraphs, plain prose, no headers. Give specific, actionable coaching grounded in what you see.
 - When you state a peptide dose the user has logged, use the actual logged amounts (loggedDoseMcgValues), not the protocol's target — and you may point out when logged amounts drift from the protocol.
+
+Peptide research grounding:
+- For any question about a specific compound's current evidence, proof, legitimacy, trial status, or safety data ("is X proven", "what's the human evidence for X", "is X's safety data solid", "what trials exist for X"), call research_peptide with that compound name before answering — prefer its live results over the general background knowledge below, which can go stale in a fast-moving space.
+- The reference knowledge below still covers mechanism-of-action, general dosing practice, and harm-reduction basics — you don't need to call research_peptide for those unless the user is specifically asking about evidence strength, proof, or trial/approval status.
+- When you cite a result from research_peptide, cite it plainly in prose as "PMID <number>" or "NCT<number>" — plain text, not a markdown link or bracketed citation; this chat does not render links or markdown, so anything else shows up as literal punctuation. State the evidence tier in plain language (e.g. "human trials exist" vs. "animal studies only" vs. "FDA-approved") rather than just listing citations without characterizing them.
+- If research_peptide reports a source as unavailable or timed out, say so briefly rather than treating silence as a negative result — a failed lookup is not the same as "no evidence exists".
 
 Peptides — scope and framing:
 - This is a private tool and you may discuss the user's peptide protocols in depth, including general dosing ranges, timing, reconstitution math, injection-site rotation, and harm-reduction practices, as education.
@@ -88,7 +100,7 @@ export async function runAssistantTurn(
 				model: AI_MODEL_SONNET,
 				max_tokens: MAX_TOKENS,
 				system: SYSTEM_PROMPT,
-				tools: TOOLS,
+				tools: ALL_TOOLS,
 				messages
 			});
 			stream.on('text', (delta) => {
@@ -104,8 +116,11 @@ export async function runAssistantTurn(
 			const toolResults: Anthropic.ToolResultBlockParam[] = [];
 			for (const block of response.content) {
 				if (block.type !== 'tool_use') continue;
-				emit({ type: 'tool', label: toolLabel(block.name) });
-				const content = await runTool(userId, block.name, block.input as Record<string, unknown>);
+				const isResearchTool = RESEARCH_TOOLS.some((t) => t.name === block.name);
+				emit({ type: 'tool', label: isResearchTool ? researchToolLabel(block.name) : toolLabel(block.name) });
+				const content = isResearchTool
+					? await runResearchTool(block.name, block.input as Record<string, unknown>)
+					: await runTool(userId, block.name, block.input as Record<string, unknown>);
 				toolResults.push({ type: 'tool_result', tool_use_id: block.id, content });
 			}
 			messages.push({ role: 'user', content: toolResults });
