@@ -180,8 +180,10 @@
 			</p>
 			<p class="mt-2 text-[0.6875rem] leading-relaxed text-[var(--color-text-muted)]">
 				When enabled, the data a question touches — meals, workouts, body metrics, and peptide logs (compound names,
-				doses, schedules) — is sent to Anthropic's Claude API to generate answers. Off by default. Peptide guidance is
-				educational only, not medical advice — discuss any protocol with a qualified clinician.
+				doses, schedules) — is sent to Anthropic's Claude API to generate answers. Questions about a specific peptide
+				may also trigger a live lookup against NCBI/PubMed and ClinicalTrials.gov's public databases — only the
+				compound name is sent to those, never your doses, schedule, or any other personal data. Off by default.
+				Peptide guidance is educational only, not medical advice — discuss any protocol with a qualified clinician.
 			</p>
 			<form method="POST" action="?/toggleAssistant" use:enhance class="mt-3">
 				<input type="hidden" name="enabled" value="true" />
