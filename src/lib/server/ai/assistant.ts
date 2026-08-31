@@ -19,7 +19,13 @@ import { getSettings } from '$lib/server/repositories/userSettings';
 import { todayIso } from '$lib/utils/todayIso';
 
 const MAX_TOOL_STEPS = 6;
-const MAX_TOKENS = 1536;
+const MAX_TOKENS = 4096;
+/** Extra API calls purely to finish a reply that hit MAX_TOKENS mid-sentence — separate from
+ *  MAX_TOOL_STEPS so a tool-heavy turn and a long-answer turn don't compete for the same budget.
+ *  Each continuation resends `messages` with the previous (truncated) assistant turn still as the
+ *  last entry, which the API treats as a prefill and continues generating from — no new user turn
+ *  needed, so the streamed answer just keeps extending seamlessly. */
+const MAX_CONTINUATIONS = 2;
 
 /** The userId-scoped data tools plus the stateless external research tool(s), combined once here so
  *  tools.ts can stay scoped to its own doc comment ("thin wrappers over existing repositories, no new
@@ -95,8 +101,10 @@ export async function runAssistantTurn(
 
 	let answer = '';
 	let model = AI_MODEL_SONNET;
+	let toolSteps = 0;
+	let continuations = 0;
 	try {
-		for (let step = 0; step < MAX_TOOL_STEPS; step++) {
+		for (;;) {
 			const stream = client.messages.stream({
 				model: AI_MODEL_SONNET,
 				max_tokens: MAX_TOKENS,
@@ -112,19 +120,36 @@ export async function runAssistantTurn(
 			model = response.model;
 			messages.push({ role: 'assistant', content: response.content });
 
-			if (response.stop_reason !== 'tool_use') break;
-
-			const toolResults: Anthropic.ToolResultBlockParam[] = [];
-			for (const block of response.content) {
-				if (block.type !== 'tool_use') continue;
-				const isResearchTool = RESEARCH_TOOLS.some((t) => t.name === block.name);
-				emit({ type: 'tool', label: isResearchTool ? researchToolLabel(block.name) : toolLabel(block.name) });
-				const content = isResearchTool
-					? await runResearchTool(block.name, block.input as Record<string, unknown>)
-					: await runTool(userId, block.name, block.input as Record<string, unknown>);
-				toolResults.push({ type: 'tool_result', tool_use_id: block.id, content });
+			if (response.stop_reason === 'tool_use') {
+				if (++toolSteps > MAX_TOOL_STEPS) break;
+				const toolResults: Anthropic.ToolResultBlockParam[] = [];
+				for (const block of response.content) {
+					if (block.type !== 'tool_use') continue;
+					const isResearchTool = RESEARCH_TOOLS.some((t) => t.name === block.name);
+					emit({ type: 'tool', label: isResearchTool ? researchToolLabel(block.name) : toolLabel(block.name) });
+					const content = isResearchTool
+						? await runResearchTool(block.name, block.input as Record<string, unknown>)
+						: await runTool(userId, block.name, block.input as Record<string, unknown>);
+					toolResults.push({ type: 'tool_result', tool_use_id: block.id, content });
+				}
+				messages.push({ role: 'user', content: toolResults });
+				continue;
 			}
-			messages.push({ role: 'user', content: toolResults });
+
+			// Hit the length cap mid-reply rather than finishing naturally — resend `messages` as-is (it
+			// already ends with this truncated assistant turn) so the API continues it as a prefill,
+			// instead of silently handing back a sentence cut off in the middle.
+			if (response.stop_reason === 'max_tokens' && continuations < MAX_CONTINUATIONS) {
+				continuations++;
+				emit({ type: 'tool', label: 'Continuing a longer answer…' });
+				continue;
+			}
+			if (response.stop_reason === 'max_tokens') {
+				const note = '\n\n(That answer hit a length limit and was cut short — ask again, or ask a narrower question, for the rest.)';
+				answer += note;
+				emit({ type: 'token', text: note });
+			}
+			break;
 		}
 	} catch (err) {
 		console.error('AI assistant turn failed', err);
