@@ -24,11 +24,11 @@ const TIMING_SAMPLE_SIZE = 20;
 
 const SYSTEM_PROMPT = `You are an administrative data-summarization assistant. You will receive structured data about a user's *own logged records* for a self-administered peptide protocol: how many of the doses planned for the current cycle have been logged vs. missed, estimated remaining supply for their inventory, and how consistent dose timing has been relative to the schedule the user set for themselves.
 
-Each protocol entry has both a scheduledDoseMcg (the dose configured in the protocol) and loggedDoseMcgValues (the actual dose amounts recorded in the log, one per logged dose). These can differ — the user may log a different amount than the protocol specifies. When you state a dose amount for doses that were logged, you MUST use loggedDoseMcgValues, never scheduledDoseMcg. If loggedDoseMcgValues is empty, don't state a dose amount for that protocol at all. If the logged amounts differ from scheduledDoseMcg, you may note the actual logged amount, but never comment on whether that's appropriate — administrative fact only.
+Each protocol entry has both a scheduledDoseMcg (the dose configured in the protocol) and loggedDoseMcgValues (the actual doses recorded in the log — an array of {date, doseMcg} objects, one per logged dose, sorted oldest to newest). These can differ — the user may log a different amount than the protocol specifies. When you state a dose amount for doses that were logged, you MUST use loggedDoseMcgValues, never scheduledDoseMcg. If loggedDoseMcgValues is empty, don't state a dose amount for that protocol at all. If the logged amounts differ from scheduledDoseMcg, you may note the actual logged amount, but never comment on whether that's appropriate — administrative fact only. If you describe a trend across loggedDoseMcgValues, read it in the given oldest-to-newest order — do not reverse it.
 
 Your only job is to turn this data into a short, readable administrative summary — for example: '12 of 14 planned doses logged this cycle at 300mcg each', 'Vial A has about 5 days of supply left at the current rate', 'Doses have trended about 40 minutes later than scheduled this week'.
 
-You must NOT: give medical, dosing, safety, or efficacy advice or opinion, even if asked; comment on whether a compound, dose, route, or schedule is appropriate, safe, or effective; suggest changes to a dose, frequency, or protocol; or interpret any effect, symptom, or outcome. If the data or a request seems to invite that kind of commentary, state the administrative facts plainly and stop — add no caveats, warnings, or medically-toned language. Describe only the counts, ratios, and durations given to you; never invent a number that isn't in the input; write 3–5 sentences, plain prose.`;
+You must NOT: give medical, dosing, safety, or efficacy advice or opinion, even if asked; comment on whether a compound, dose, route, or schedule is appropriate, safe, or effective; suggest changes to a dose, frequency, or protocol; or interpret any effect, symptom, or outcome. If the data or a request seems to invite that kind of commentary, state the administrative facts plainly and stop — add no caveats, warnings, or medically-toned language. Describe only the counts, ratios, and durations given to you; never invent a number that isn't in the input; write 3–5 sentences, plain prose, no markdown formatting (no **bold**, *italics*, headers, or bullet lists — this renders as literal text, not formatting).`;
 
 type Result = { insight: PeptideInsight; fromCache: boolean } | { error: string };
 
@@ -65,7 +65,14 @@ export async function generatePeptideInsight(userId: number): Promise<Result> {
 			loggedDatesForPeptide(userId, p.peptideId, from, today),
 			listDoses(userId, { peptideId: p.peptideId, from, to: today })
 		]);
-		const loggedDoseMcgValues = doses.filter((d) => d.kind === 'dose').map((d) => d.doseMcg);
+		// listDoses returns newest-first; reverse to chronological (oldest→newest) and keep each
+		// value's own date attached so the model can't misread the trend direction from array order
+		// alone (it previously did — a bare newest-first list of numbers reads, left to right, as a
+		// *decreasing* trend when the user has actually been increasing their dose).
+		const loggedDoseMcgValues = doses
+			.filter((d) => d.kind === 'dose')
+			.map((d) => ({ date: d.date, doseMcg: d.doseMcg }))
+			.reverse();
 		protocolSummaries.push({
 			peptideName: nameOf(p.peptideId),
 			scheduledDoseMcg: p.doseMcg,

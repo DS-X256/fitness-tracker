@@ -13,7 +13,7 @@ import { isoWeekStart } from '$lib/utils/isoDate';
 
 const REGENERATE_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour — weekly aggregates change slowly
 
-const SYSTEM_PROMPT = `You are a fitness data summarizer. You'll receive structured JSON describing one user's past 7 days: workout volume and any notable strength PRs, days logged and average calorie/protein intake, and body-weight trend. Write a short (3–5 sentence), plain-language, encouraging weekly recap suitable for a dashboard card. Mention only facts present in the JSON — never invent a number, never give training or nutrition advice beyond restating what the data already shows, and omit any field that's null or missing rather than guessing at it.`;
+const SYSTEM_PROMPT = `You are a fitness data summarizer. You'll receive structured JSON describing one user's past 7 days: workout volume and any notable strength PRs, days logged and average calorie/protein intake, and body-weight trend. Write a short (3–5 sentence), plain-language, encouraging weekly recap suitable for a dashboard card. Plain text only — no markdown formatting (no **bold**, *italics*, headers, or bullet lists); this renders as literal text, not formatting. Mention only facts present in the JSON — never invent a number, never give training or nutrition advice beyond restating what the data already shows, and omit any field that's null or missing rather than guessing at it.`;
 
 type Result = { digest: WeeklyDigest; fromCache: boolean } | { error: string };
 

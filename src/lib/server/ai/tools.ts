@@ -184,7 +184,14 @@ async function peptideStatus(userId: number) {
 			loggedDatesForPeptide(userId, p.peptideId, from, today),
 			listDoses(userId, { peptideId: p.peptideId, from, to: today })
 		]);
-		const loggedDoseMcgValues = doses.filter((d) => d.kind === 'dose').map((d) => d.doseMcg);
+		// listDoses returns newest-first; reverse to chronological (oldest→newest) and keep each value's
+		// own date attached so the model can't misread the trend direction from array order alone (it
+		// previously did — a bare newest-first list of numbers reads, left to right, as a *decreasing*
+		// trend when the user has actually been increasing their dose).
+		const loggedDoseMcgValues = doses
+			.filter((d) => d.kind === 'dose')
+			.map((d) => ({ date: d.date, doseMcg: d.doseMcg }))
+			.reverse();
 		protocolSummaries.push({
 			peptideName: nameOf(p.peptideId),
 			route: p.route ? (ROUTE_LABELS[p.route] ?? p.route) : null,
