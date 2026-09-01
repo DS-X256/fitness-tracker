@@ -18,6 +18,46 @@
 	let toolStatus = $state('');
 	let error = $state('');
 	let scrollEl = $state<HTMLElement | null>(null);
+	let shareFeedback = $state<{ index: number; text: string } | null>(null);
+	let shareFeedbackTimer: ReturnType<typeof setTimeout> | undefined;
+
+	const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+
+	/** Shares one assistant answer (paired with the question that prompted it, when there is one) via the
+	 *  OS share sheet on mobile, or copies to the clipboard on desktop/unsupported browsers. Local only —
+	 *  no server round-trip, so it doesn't touch how chat content is stored or who can read it. */
+	async function shareMessage(index: number) {
+		const answer = messages[index];
+		if (!answer || answer.role !== 'assistant') return;
+		const question = messages[index - 1];
+		const text =
+			question?.role === 'user'
+				? `Q: ${question.content}\n\nA: ${answer.content}`
+				: answer.content;
+
+		if (canShare) {
+			try {
+				await navigator.share({ title: 'AI Coach · Fitness Tracker', text });
+				return;
+			} catch (err) {
+				// User cancelling the share sheet throws AbortError — not a failure, don't fall back.
+				if (err instanceof Error && err.name === 'AbortError') return;
+			}
+		}
+
+		try {
+			await navigator.clipboard.writeText(text);
+			flashShareFeedback(index, 'Copied to clipboard');
+		} catch {
+			flashShareFeedback(index, "Couldn't share this message");
+		}
+	}
+
+	function flashShareFeedback(index: number, text: string) {
+		clearTimeout(shareFeedbackTimer);
+		shareFeedback = { index, text };
+		shareFeedbackTimer = setTimeout(() => (shareFeedback = null), 2000);
+	}
 
 	const SUGGESTIONS = [
 		'How has my training volume looked this week?',
@@ -227,9 +267,22 @@
 						</div>
 					</div>
 				{:else}
-					<div class="flex justify-start">
+					<div class="flex flex-col items-start gap-1">
 						<div class="max-w-[90%] rounded-[var(--radius-lg)] bg-[var(--color-surface)] border border-[var(--color-border)] px-3.5 py-2 text-[15px] text-[var(--color-text)] whitespace-pre-line">
 							{msg.content}
+						</div>
+						<div class="flex items-center gap-2 px-1">
+							<button
+								type="button"
+								onclick={() => shareMessage(i)}
+								class="flex items-center gap-1 text-[0.6875rem] text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+							>
+								<Icon name="share" size={12} />
+								Share
+							</button>
+							{#if shareFeedback?.index === i}
+								<span class="text-[0.6875rem] text-[var(--color-text-muted)]">{shareFeedback.text}</span>
+							{/if}
 						</div>
 					</div>
 				{/if}
