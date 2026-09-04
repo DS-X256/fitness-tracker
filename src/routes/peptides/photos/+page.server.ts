@@ -1,5 +1,5 @@
 import { fail } from '@sveltejs/kit';
-import { deletePhoto, listPhotos, savePhoto } from '$lib/server/repositories/peptidePhotos';
+import { deletePhoto, listPhotos, savePhoto, updatePhoto } from '$lib/server/repositories/peptidePhotos';
 import { listPeptides } from '$lib/server/repositories/peptides';
 import { photoEncryptionAvailable } from '$lib/server/crypto/photoCrypto';
 import { todayIso } from '$lib/utils/todayIso';
@@ -32,6 +32,25 @@ export const actions: Actions = {
 			await savePhoto(userId, { peptideId, date, caption }, file);
 		} catch (e) {
 			return fail(400, { error: e instanceof Error ? e.message : 'Could not save photo' });
+		}
+		return { success: true };
+	},
+
+	update: async ({ request, locals }) => {
+		const userId = locals.user!.id;
+		const form = await request.formData();
+		const id = Number(form.get('id'));
+		if (!Number.isFinite(id)) return fail(400, { error: 'Invalid photo' });
+
+		const date = String(form.get('date') ?? '').trim() || todayIso();
+		const peptideIdRaw = Number(form.get('peptideId'));
+		const peptideId = Number.isFinite(peptideIdRaw) && peptideIdRaw > 0 ? peptideIdRaw : null;
+		const caption = String(form.get('caption') ?? '');
+
+		try {
+			await updatePhoto(userId, id, { peptideId, date, caption });
+		} catch (e) {
+			return fail(400, { error: e instanceof Error ? e.message : 'Could not update photo' });
 		}
 		return { success: true };
 	},

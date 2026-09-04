@@ -71,6 +71,20 @@ export async function savePhoto(
 	}
 }
 
+export async function updatePhoto(
+	userId: number,
+	id: number,
+	meta: { peptideId: number | null; date: string; caption: string | null }
+): Promise<void> {
+	if (!isValidIsoDate(meta.date)) throw new Error('Invalid date');
+	const caption = meta.caption ? meta.caption.trim().slice(0, 280) || null : null;
+
+	await db
+		.update(peptidePhotos)
+		.set({ peptideId: meta.peptideId, date: meta.date, caption })
+		.where(and(eq(peptidePhotos.id, id), eq(peptidePhotos.userId, userId)));
+}
+
 export async function deletePhoto(userId: number, id: number): Promise<void> {
 	const [row] = await db
 		.select({ filename: peptidePhotos.filename })

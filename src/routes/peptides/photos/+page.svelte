@@ -8,6 +8,7 @@
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import HintCard from '$lib/components/HintCard.svelte';
 	import UploadPeptidePhotoModal from '$lib/components/peptides/UploadPeptidePhotoModal.svelte';
+	import EditPeptidePhotoModal from '$lib/components/peptides/EditPeptidePhotoModal.svelte';
 	import PhotoLightbox from '$lib/components/PhotoLightbox.svelte';
 	import { goto } from '$app/navigation';
 	import type { PageData } from './$types';
@@ -15,9 +16,16 @@
 	let { data }: { data: PageData } = $props();
 
 	let uploadOpen = $state(false);
+	let editOpen = $state(false);
+	let editPhoto = $state<{ id: number; date: string; peptideId: number | null; caption: string | null } | null>(null);
 	let lightboxOpen = $state(false);
 	let lightboxStartId = $state<number | null>(null);
 	let lastTriggerEl: HTMLElement | null = null;
+
+	function openEdit(photo: (typeof data.photos)[number]) {
+		editPhoto = { id: photo.id, date: photo.date, peptideId: photo.peptideId, caption: photo.caption };
+		editOpen = true;
+	}
 
 	const lightboxPhotos = $derived(
 		data.photos.map((p) => ({
@@ -114,12 +122,22 @@
 							{/if}
 						</div>
 					</button>
-					<form method="POST" action="?/delete" use:enhance class="absolute right-1.5 top-1.5">
-						<input type="hidden" name="id" value={photo.id} />
-						<button type="submit" aria-label={`Delete photo ${fmtDate(photo.date)}`} class="h-8 w-8 flex items-center justify-center rounded-full bg-black/45 text-white hover:bg-[var(--color-danger)]">
-							<Icon name="trash" size={15} />
+					<div class="absolute right-1.5 top-1.5 flex gap-1.5">
+						<button
+							type="button"
+							aria-label={`Edit photo ${fmtDate(photo.date)}`}
+							onclick={() => openEdit(photo)}
+							class="h-8 w-8 flex items-center justify-center rounded-full bg-black/45 text-white hover:bg-black/65"
+						>
+							<Icon name="edit" size={15} />
 						</button>
-					</form>
+						<form method="POST" action="?/delete" use:enhance>
+							<input type="hidden" name="id" value={photo.id} />
+							<button type="submit" aria-label={`Delete photo ${fmtDate(photo.date)}`} class="h-8 w-8 flex items-center justify-center rounded-full bg-black/45 text-white hover:bg-[var(--color-danger)]">
+								<Icon name="trash" size={15} />
+							</button>
+						</form>
+					</div>
 				</div>
 			{/each}
 		</div>
@@ -127,6 +145,7 @@
 </div>
 
 <UploadPeptidePhotoModal bind:open={uploadOpen} peptides={data.peptides} defaultPeptideId={data.peptideId} />
+<EditPeptidePhotoModal bind:open={editOpen} photo={editPhoto} peptides={data.peptides} />
 <PhotoLightbox
 	bind:open={lightboxOpen}
 	photos={lightboxPhotos}
