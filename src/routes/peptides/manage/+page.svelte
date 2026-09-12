@@ -82,14 +82,14 @@
 	let prLoadDays = $state<number | null>(null);
 	let prTaper = $state(false);
 	let prTaperDose = $state<number | null>(null);
-	let prTaperDays = $state<number | null>(null);
+	let prTaperAfter = $state<number | null>(null);
 	let prError = $state('');
 	function newProtocol() {
 		prId = null; prPeptideId = data.peptides[0]?.id ?? null; prDose = null; prRoute = ''; prFreq = 'daily';
 		prDays = new Set(); prPerWeek = null; prTime = ''; prStart = todayIso(); prEnd = '';
 		prOn = null; prOff = null; prRotate = true; prNotes = '';
 		prLoading = false; prLoadDose = null; prLoadDays = null;
-		prTaper = false; prTaperDose = null; prTaperDays = null; prError = '';
+		prTaper = false; prTaperDose = null; prTaperAfter = null; prError = '';
 		protoOpen = true;
 	}
 	function editProtocol(p: PageData['protocols'][number]) {
@@ -99,8 +99,8 @@
 		prOn = p.cycleWeeksOn; prOff = p.cycleWeeksOff; prRotate = p.rotateSites; prNotes = p.notes ?? '';
 		prLoading = p.loadingDoseMcg != null && p.loadingDurationDays != null;
 		prLoadDose = p.loadingDoseMcg ?? null; prLoadDays = p.loadingDurationDays ?? null;
-		prTaper = p.taperDoseMcg != null && p.taperDurationDays != null;
-		prTaperDose = p.taperDoseMcg ?? null; prTaperDays = p.taperDurationDays ?? null; prError = '';
+		prTaper = p.taperDoseMcg != null && p.taperAfterDays != null;
+		prTaperDose = p.taperDoseMcg ?? null; prTaperAfter = p.taperAfterDays ?? null; prError = '';
 		protoOpen = true;
 	}
 	function toggleDay(d: number) {
@@ -247,13 +247,16 @@
 										{/if}
 									</p>
 								{/if}
-								{#if p.taperDoseMcg != null && p.taperDurationDays != null}
+								{#if p.taperDoseMcg != null && p.taperAfterDays != null}
+									{@const loadingObj = p.loadingDoseMcg != null && p.loadingDurationDays != null ? { doseMcg: p.loadingDoseMcg, durationDays: p.loadingDurationDays } : null}
+									{@const taperObj = { doseMcg: p.taperDoseMcg, afterDays: p.taperAfterDays }}
 									<p class="text-xs text-[var(--color-accent)] mt-0.5">
-										{#if isTaperPhaseOn(p.endDate, { doseMcg: p.taperDoseMcg, durationDays: p.taperDurationDays }, todayIso())}
-											Tapering to {formatDose(p.taperDoseMcg)} through {p.endDate}
+										{#if isTaperPhaseOn(p.startDate, loadingObj, taperObj, todayIso())}
+											Tapered to {formatDose(p.taperDoseMcg)} since {taperStartDate(p.startDate, loadingObj, taperObj)}
 										{:else}
-											Tapers to {formatDose(p.taperDoseMcg)} from {taperStartDate(p.endDate, { doseMcg: p.taperDoseMcg, durationDays: p.taperDurationDays })}
+											Tapers to {formatDose(p.taperDoseMcg)} from {taperStartDate(p.startDate, loadingObj, taperObj)}
 										{/if}
+										{#if p.endDate} · runs through {p.endDate}{:else} · then runs indefinitely{/if}
 									</p>
 								{/if}
 							</div>
@@ -446,23 +449,18 @@
 							Use a taper phase
 						</label>
 						{#if prTaper}
-							{#if !prEnd}
-								<p class="text-xs text-[var(--color-danger)] mt-1.5 mb-3">
-									Needs an end date — a taper counts down to it, so set one above before saving.
-								</p>
-							{:else}
-								<p class="text-xs text-[var(--color-text-muted)] mt-1.5 mb-3">
-									A lower dose for the final stretch before the end date, on the same schedule above, stepping down
-									from the maintenance dose entered up top before the protocol ends.
-								</p>
-							{/if}
+							<p class="text-xs text-[var(--color-text-muted)] mt-1.5 mb-3">
+								A third dose that takes over after a stretch at the regular dose above — e.g. load high for a few
+								days, hold the regular dose for a while, then step down for good. Runs through the end date if you
+								set one above, or indefinitely if you don't — it becomes the new regular dose either way.
+							</p>
 							<div class="grid grid-cols-2 gap-3">
 								<NumberField label="Taper dose" name="taperDoseMcg" bind:value={prTaperDose} decimalText suffix="mcg" />
-								<NumberField label="For" name="taperDurationDays" bind:value={prTaperDays} suffix="days" />
+								<NumberField label="Starts after" name="taperAfterDays" bind:value={prTaperAfter} suffix="days" />
 							</div>
 						{:else}
 							<input type="hidden" name="taperDoseMcg" value="" />
-							<input type="hidden" name="taperDurationDays" value="" />
+							<input type="hidden" name="taperAfterDays" value="" />
 						{/if}
 					</div>
 					<TextareaField label="Notes" name="notes" bind:value={prNotes} rows={2} placeholder="Optional" />

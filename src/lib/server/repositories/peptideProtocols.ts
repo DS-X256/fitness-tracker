@@ -4,7 +4,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import { decryptJson, encryptJson } from '$lib/server/crypto/fieldCrypto';
 import { isValidIsoDate } from '$lib/utils/isoDate';
 import { isAdminRoute, type AdminRoute } from '$lib/utils/peptides';
-import { daysBetween, isFrequency, type Frequency, type LoadingPhase, type ProtocolSchedule, type TaperPhase } from '$lib/utils/peptideSchedule';
+import { isFrequency, taperStartDate, type Frequency, type LoadingPhase, type ProtocolSchedule, type TaperPhase } from '$lib/utils/peptideSchedule';
 
 // Protocol templates (the "plan" side). Schedule/dose detail is encrypted in `enc`; startDate + active
 // are cleartext so the list can be ordered/filtered without decrypting.
@@ -27,11 +27,12 @@ type ProtocolEnc = {
 	 *  the first loadingDurationDays days. Both null together mean "no loading phase". */
 	loadingDoseMcg: number | null;
 	loadingDurationDays: number | null;
-	/** Optional back-loaded stretch at the end of the protocol (the "advanced" mirror of loading) — same
-	 *  schedule, different (typically lower) dose, for the taperDurationDays days counting back from
-	 *  endDate. Both null together mean "no taper phase"; requires endDate to be set (see sanitize()). */
+	/** Optional third dose tier — the "advanced" mirror of loading, but forward-anchored and open-ended:
+	 *  after taperAfterDays days at the regular dose (counted from when loading ends, or startDate if
+	 *  there's no loading phase), the dose steps to taperDoseMcg and just stays there — through endDate if
+	 *  one is set, or forever if not. Both null together mean "no taper phase". */
 	taperDoseMcg: number | null;
-	taperDurationDays: number | null;
+	taperAfterDays: number | null;
 };
 
 export type Protocol = {
@@ -60,7 +61,7 @@ export type ProtocolInput = {
 	loadingDoseMcg?: number | null;
 	loadingDurationDays?: number | null;
 	taperDoseMcg?: number | null;
-	taperDurationDays?: number | null;
+	taperAfterDays?: number | null;
 };
 
 function decode(row: typeof peptideProtocols.$inferSelect): Protocol {
@@ -99,13 +100,20 @@ export function toLoadingPhase(p: Protocol): LoadingPhase | null {
 /** The taper-phase subset for peptideSchedule's effectiveDoseMcg/isTaperPhaseOn/taperStartDate. Null
  *  when the protocol has no taper phase configured. */
 export function toTaperPhase(p: Protocol): TaperPhase | null {
-	if (p.taperDoseMcg == null || p.taperDurationDays == null) return null;
-	return { doseMcg: p.taperDoseMcg, durationDays: p.taperDurationDays };
+	if (p.taperDoseMcg == null || p.taperAfterDays == null) return null;
+	return { doseMcg: p.taperDoseMcg, afterDays: p.taperAfterDays };
 }
 
 function posIntOrNull(v: number | null | undefined, max: number, label: string): number | null {
 	if (v == null) return null;
 	if (!Number.isInteger(v) || v <= 0 || v > max) throw new Error(`${label} is out of range`);
+	return v;
+}
+
+/** Like posIntOrNull but allows 0 (taperAfterDays: 0 means "start the taper immediately"). */
+function nonNegIntOrNull(v: number | null | undefined, max: number, label: string): number | null {
+	if (v == null) return null;
+	if (!Number.isInteger(v) || v < 0 || v > max) throw new Error(`${label} is out of range`);
 	return v;
 }
 
@@ -146,21 +154,24 @@ function sanitize(input: ProtocolInput): { enc: ProtocolEnc; startDate: string }
 		throw new Error('Set a loading-phase length, or clear the loading dose');
 	}
 
-	const taperDurationDays = posIntOrNull(input.taperDurationDays, 365, 'Taper phase length');
+	const taperAfterDays = nonNegIntOrNull(input.taperAfterDays, 3650, 'Taper start');
 	let taperDoseMcg: number | null = null;
-	if (taperDurationDays != null) {
-		// A taper counts backward from endDate (see peptideSchedule.isTaperPhaseOn), so it's meaningless
-		// on an open-ended protocol.
-		if (!input.endDate) throw new Error('Set an end date to use a taper phase');
+	if (taperAfterDays != null) {
 		if (input.taperDoseMcg == null || !Number.isFinite(input.taperDoseMcg) || input.taperDoseMcg <= 0 || input.taperDoseMcg > 100_000) {
 			throw new Error('Enter a taper-phase dose (mcg)');
 		}
-		if (taperDurationDays > daysBetween(input.startDate, input.endDate) + 1) {
-			throw new Error('Taper phase length is longer than the protocol itself');
+		// Not required to be reachable before endDate ends the protocol outright — that's a plausible
+		// "I changed my mind, wind this down early" edit — but a taper that can never start at all
+		// (misconfigured to begin after a protocol that already has a fixed end) is worth catching.
+		const loadingPhase =
+			loadingDurationDays != null && loadingDoseMcg != null ? { doseMcg: loadingDoseMcg, durationDays: loadingDurationDays } : null;
+		const taperStart = taperStartDate(input.startDate, loadingPhase, { doseMcg: input.taperDoseMcg, afterDays: taperAfterDays });
+		if (input.endDate && taperStart && taperStart > input.endDate) {
+			throw new Error("Taper phase starts after the protocol's end date — shorten it or move the end date out");
 		}
 		taperDoseMcg = Math.round(input.taperDoseMcg * 1000) / 1000;
 	} else if (input.taperDoseMcg != null) {
-		throw new Error('Set a taper-phase length, or clear the taper dose');
+		throw new Error('Set when the taper phase starts, or clear the taper dose');
 	}
 
 	return {
@@ -182,7 +193,7 @@ function sanitize(input: ProtocolInput): { enc: ProtocolEnc; startDate: string }
 			loadingDoseMcg,
 			loadingDurationDays,
 			taperDoseMcg,
-			taperDurationDays
+			taperAfterDays
 		}
 	};
 }

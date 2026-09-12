@@ -201,9 +201,9 @@ async function peptideStatus(userId: number) {
 			route: p.route ? (ROUTE_LABELS[p.route] ?? p.route) : null,
 			frequency: p.frequency,
 			protocolDoseMcg: p.doseMcg,
-			todaysTargetDoseMcg: effectiveDoseMcg(p.doseMcg, p.startDate, toLoadingPhase(p), today, p.endDate, toTaperPhase(p)),
+			todaysTargetDoseMcg: effectiveDoseMcg(p.doseMcg, p.startDate, toLoadingPhase(p), today, toTaperPhase(p)),
 			loadingPhaseActiveToday: isLoadingPhaseOn(p.startDate, toLoadingPhase(p), today),
-			taperPhaseActiveToday: isTaperPhaseOn(p.endDate, toTaperPhase(p), today),
+			taperPhaseActiveToday: isTaperPhaseOn(p.startDate, toLoadingPhase(p), toTaperPhase(p), today),
 			plannedThisWindow: planned,
 			loggedThisWindow: loggedDays.size,
 			loggedDoseMcgValues

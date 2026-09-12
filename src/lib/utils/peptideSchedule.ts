@@ -38,15 +38,18 @@ export type LoadingPhase = {
 	durationDays: number;
 };
 
-/** The mirror image of LoadingPhase: an optional lower (or otherwise different) back-loaded stretch at
- *  the END of a protocol — e.g. stepping the dose down for the final N days before stopping, to taper off
- *  rather than dropping straight from maintenance to zero. Anchored to the protocol's endDate rather than
- *  its startDate, so it only applies when an endDate is set; `durationDays` counts backward from endDate,
- *  the end date itself inclusive. Same schedule (frequency/weekday/perWeek) as the rest of the protocol —
- *  only the dose amount changes for those days. */
+/** An optional third dose tier that kicks in after a stretch at the regular ("maintenance") dose and
+ *  then just keeps applying — e.g. "load high for 3 days, hold the regular dose for 10 days, then step
+ *  down for good". Anchored forward from when the regular dose itself starts (right after the loading
+ *  phase ends, or from the protocol's startDate if there's no loading phase) rather than backward from an
+ *  end date, so it needs no end date to make sense: with one set, the taper dose runs through it same as
+ *  everything else; with none, it just runs forever, becoming the new de-facto maintenance dose. Same
+ *  schedule (frequency/weekday/perWeek) as the rest of the protocol — only the dose amount changes. */
 export type TaperPhase = {
 	doseMcg: number;
-	durationDays: number;
+	/** Days at the regular dose — counted from when the regular dose starts — before switching to
+	 *  doseMcg. 0 means "immediately", i.e. skip straight from loading to this dose. */
+	afterDays: number;
 };
 
 const WEEKDAY_ABBR = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
@@ -139,35 +142,44 @@ export function loadingEndDate(startDate: string, loading: LoadingPhase | null |
 	return shiftIsoDate(startDate, loading.durationDays);
 }
 
-/** Is `date` inside the taper window — the final `durationDays` days up to and including `endDate`
- *  (day 0 = endDate, counting backward)? False when no taper is configured, or `endDate` isn't set (a
- *  taper is measured from an end date, so an open-ended protocol has nowhere to count back from). */
-export function isTaperPhaseOn(endDate: string | null | undefined, taper: TaperPhase | null | undefined, date: string): boolean {
-	if (!taper || taper.durationDays <= 0 || !endDate) return false;
-	const remaining = daysBetween(date, endDate);
-	return remaining >= 0 && remaining < taper.durationDays;
+/** The ISO date the taper phase takes over from the regular dose, or null when no taper phase is
+ *  configured. That's `taper.afterDays` days after the regular dose itself starts — i.e. after
+ *  loadingEndDate, or startDate when there's no loading phase. */
+export function taperStartDate(
+	startDate: string,
+	loading: LoadingPhase | null | undefined,
+	taper: TaperPhase | null | undefined
+): string | null {
+	if (!taper || taper.afterDays < 0) return null;
+	const regularStart = loadingEndDate(startDate, loading) ?? startDate;
+	return shiftIsoDate(regularStart, taper.afterDays);
 }
 
-/** The ISO date the taper phase takes over from maintenance dosing (the first tapering day), or null
- *  when no taper phase is configured (including when there's no endDate to count back from). */
-export function taperStartDate(endDate: string | null | undefined, taper: TaperPhase | null | undefined): string | null {
-	if (!taper || taper.durationDays <= 0 || !endDate) return null;
-	return shiftIsoDate(endDate, -(taper.durationDays - 1));
+/** Is `date` on or after the taper phase's start? Once a taper phase starts it never turns back off —
+ *  it IS the new maintenance dose from that point on — so unlike isLoadingPhaseOn there's no upper bound
+ *  here; a protocol's own endDate (via isDueOn) is what eventually stops it being "due" at all. */
+export function isTaperPhaseOn(
+	startDate: string,
+	loading: LoadingPhase | null | undefined,
+	taper: TaperPhase | null | undefined,
+	date: string
+): boolean {
+	const taperStart = taperStartDate(startDate, loading, taper);
+	return taperStart != null && date >= taperStart;
 }
 
 /** The dose that actually applies on `date`: the loading dose while isLoadingPhaseOn, the taper dose
- *  while isTaperPhaseOn (loading takes precedence on the rare protocol short enough for both windows to
- *  overlap), otherwise the protocol's own maintenance dose. */
+ *  once isTaperPhaseOn (the two can never overlap — a taper always starts at or after loadingEndDate),
+ *  otherwise the protocol's own maintenance dose. */
 export function effectiveDoseMcg(
 	maintenanceDoseMcg: number,
 	startDate: string,
 	loading: LoadingPhase | null | undefined,
 	date: string,
-	endDate?: string | null,
 	taper?: TaperPhase | null
 ): number {
 	if (isLoadingPhaseOn(startDate, loading, date)) return loading!.doseMcg;
-	if (isTaperPhaseOn(endDate, taper, date)) return taper!.doseMcg;
+	if (isTaperPhaseOn(startDate, loading, taper, date)) return taper!.doseMcg;
 	return maintenanceDoseMcg;
 }
 

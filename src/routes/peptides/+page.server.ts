@@ -84,9 +84,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 			protocolId: p.id,
 			peptideId: p.peptideId,
 			peptideName: nameOf(p.peptideId),
-			doseMcg: effectiveDoseMcg(p.doseMcg, p.startDate, toLoadingPhase(p), today, p.endDate, toTaperPhase(p)),
+			doseMcg: effectiveDoseMcg(p.doseMcg, p.startDate, toLoadingPhase(p), today, toTaperPhase(p)),
 			loading: isLoadingPhaseOn(p.startDate, toLoadingPhase(p), today),
-			tapering: isTaperPhaseOn(p.endDate, toTaperPhase(p), today),
+			tapering: isTaperPhaseOn(p.startDate, toLoadingPhase(p), toTaperPhase(p), today),
 			route: p.route,
 			timeOfDay: p.timeOfDay,
 			logged: loggedToday.has(p.peptideId)
@@ -281,7 +281,7 @@ export const actions: Actions = {
 		const proto = await getProtocol(userId, protocolId);
 		if (!proto) return fail(400, { error: 'Protocol not found' });
 		const today = todayIso();
-		const doseMcg = effectiveDoseMcg(proto.doseMcg, proto.startDate, toLoadingPhase(proto), today, proto.endDate, toTaperPhase(proto));
+		const doseMcg = effectiveDoseMcg(proto.doseMcg, proto.startDate, toLoadingPhase(proto), today, toTaperPhase(proto));
 
 		const route = proto.route ?? null;
 		let site: ApplicationSite | null = null;

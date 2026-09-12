@@ -446,10 +446,11 @@ export const peptideProtocols = sqliteTable('peptide_protocols', {
 	peptideId: integer('peptide_id').notNull().references(() => peptides.id, { onDelete: 'cascade' }),
 	/** Encrypted JSON: { doseMcg, route, frequency, weekdayMask, perWeek, timeOfDay, cycleWeeksOn,
 	 *  cycleWeeksOff, endDate, rotateSites, notes, loadingDoseMcg, loadingDurationDays, taperDoseMcg,
-	 *  taperDurationDays }. AAD-bound to `${userId}:peptide_protocols`. `route` is any AdminRoute, not just
-	 *  injection — see $lib/utils/peptides.ts. loading{Dose,Duration} front-load a different dose for the
-	 *  protocol's first N days; taper{Dose,Duration} mirror that at the other end, stepping the dose down
-	 *  for the final N days up to endDate (so a taper requires endDate to be set) — see peptideSchedule.ts. */
+	 *  taperAfterDays }. AAD-bound to `${userId}:peptide_protocols`. `route` is any AdminRoute, not just
+	 *  injection — see $lib/utils/peptides.ts. loading{Dose,DurationDays} front-load a different dose for
+	 *  the protocol's first N days; taper{Dose,AfterDays} add a third tier that kicks in taperAfterDays
+	 *  days after the regular dose starts and then just keeps applying (through endDate if set, forever if
+	 *  not) — see peptideSchedule.ts. */
 	enc: text('enc').notNull(),
 	/** Cleartext so protocols can be ordered/filtered by start without decrypting; low-sensitivity alone. */
 	startDate: text('start_date').notNull(),
