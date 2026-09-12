@@ -120,7 +120,9 @@ export const actions: Actions = {
 			rotateSites: form.get('rotateSites') === 'on',
 			notes: str(form, 'notes'),
 			loadingDoseMcg: num(form, 'loadingDoseMcg'),
-			loadingDurationDays: num(form, 'loadingDurationDays')
+			loadingDurationDays: num(form, 'loadingDurationDays'),
+			taperDoseMcg: num(form, 'taperDoseMcg'),
+			taperDurationDays: num(form, 'taperDurationDays')
 		};
 		try {
 			if (Number.isFinite(id) && id > 0) await updateProtocol(userId, id, input);

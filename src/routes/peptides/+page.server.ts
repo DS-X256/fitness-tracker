@@ -1,7 +1,7 @@
 import { fail } from '@sveltejs/kit';
 import { fieldEncryptionAvailable } from '$lib/server/crypto/fieldCrypto';
 import { listPeptides, peptideNameMap } from '$lib/server/repositories/peptides';
-import { listProtocols, getProtocol, toSchedule, toLoadingPhase } from '$lib/server/repositories/peptideProtocols';
+import { listProtocols, getProtocol, toSchedule, toLoadingPhase, toTaperPhase } from '$lib/server/repositories/peptideProtocols';
 import { listVials } from '$lib/server/repositories/peptideVials';
 import {
 	dateCounts,
@@ -22,7 +22,7 @@ import { generatePeptideInsight } from '$lib/server/ai/peptideInsights';
 import { todayIso } from '$lib/utils/todayIso';
 import { shiftIsoDate } from '$lib/utils/isoDate';
 import { parseDecimal } from '$lib/utils/parseDecimal';
-import { daysBetween, effectiveDoseMcg, isDueOn, isLoadingPhaseOn } from '$lib/utils/peptideSchedule';
+import { daysBetween, effectiveDoseMcg, isDueOn, isLoadingPhaseOn, isTaperPhaseOn } from '$lib/utils/peptideSchedule';
 import { dosesPerVial, syringeUnits } from '$lib/utils/reconstitution';
 import {
 	mcgPerActuation,
@@ -84,8 +84,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 			protocolId: p.id,
 			peptideId: p.peptideId,
 			peptideName: nameOf(p.peptideId),
-			doseMcg: effectiveDoseMcg(p.doseMcg, p.startDate, toLoadingPhase(p), today),
+			doseMcg: effectiveDoseMcg(p.doseMcg, p.startDate, toLoadingPhase(p), today, p.endDate, toTaperPhase(p)),
 			loading: isLoadingPhaseOn(p.startDate, toLoadingPhase(p), today),
+			tapering: isTaperPhaseOn(p.endDate, toTaperPhase(p), today),
 			route: p.route,
 			timeOfDay: p.timeOfDay,
 			logged: loggedToday.has(p.peptideId)
@@ -280,7 +281,7 @@ export const actions: Actions = {
 		const proto = await getProtocol(userId, protocolId);
 		if (!proto) return fail(400, { error: 'Protocol not found' });
 		const today = todayIso();
-		const doseMcg = effectiveDoseMcg(proto.doseMcg, proto.startDate, toLoadingPhase(proto), today);
+		const doseMcg = effectiveDoseMcg(proto.doseMcg, proto.startDate, toLoadingPhase(proto), today, proto.endDate, toTaperPhase(proto));
 
 		const route = proto.route ?? null;
 		let site: ApplicationSite | null = null;

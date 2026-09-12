@@ -94,6 +94,7 @@
 								<p class="text-sm font-medium text-[var(--color-text)] truncate">
 									{d.peptideName}
 									{#if d.loading}<span class="ml-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-accent)] align-middle">Loading</span>{/if}
+									{#if d.tapering}<span class="ml-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-accent)] align-middle">Tapering</span>{/if}
 								</p>
 								<p class="text-xs text-[var(--color-text-muted)] tabular-nums">
 									{formatDose(d.doseMcg)}{#if d.timeOfDay} · {d.timeOfDay}{/if}

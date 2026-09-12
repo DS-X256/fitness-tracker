@@ -15,11 +15,11 @@ import { listExercises } from '$lib/server/repositories/exercises';
 import { getExerciseProgress, weeklySetsByMuscleGroup } from '$lib/server/repositories/progress';
 import { goalsWithProgress } from '$lib/server/repositories/exerciseGoals';
 import { listSessions } from '$lib/server/repositories/workouts';
-import { listProtocols, toSchedule } from '$lib/server/repositories/peptideProtocols';
+import { listProtocols, toLoadingPhase, toSchedule, toTaperPhase } from '$lib/server/repositories/peptideProtocols';
 import { listVials } from '$lib/server/repositories/peptideVials';
 import { listDoses, loggedDatesForPeptide, mcgConsumedByVial } from '$lib/server/repositories/peptideDoses';
 import { peptideNameMap } from '$lib/server/repositories/peptides';
-import { scheduledCount } from '$lib/utils/peptideSchedule';
+import { effectiveDoseMcg, isLoadingPhaseOn, isTaperPhaseOn, scheduledCount } from '$lib/utils/peptideSchedule';
 import { containerTotalMcg, daysOfSupply } from '$lib/utils/delivery';
 import { ROUTE_LABELS } from '$lib/utils/peptides';
 import { todayIso } from '$lib/utils/todayIso';
@@ -67,7 +67,7 @@ export const TOOLS: Anthropic.Tool[] = [
 	{
 		name: 'get_peptide_status',
 		description:
-			"The user's active peptide protocols with this-cycle adherence (planned vs logged), the actual logged dose amounts, inventory days-of-supply, and expiry. Use for questions about peptides, protocols, dosing, adherence, or supply.",
+			"The user's active peptide protocols with this-cycle adherence (planned vs logged), the actual logged dose amounts, today's target dose (accounting for any active loading/taper phase, which can differ from the protocol's base dose), inventory days-of-supply, and expiry. Use for questions about peptides, protocols, dosing, adherence, or supply.",
 		input_schema: { type: 'object', properties: {} }
 	}
 ];
@@ -192,11 +192,18 @@ async function peptideStatus(userId: number) {
 			.filter((d) => d.kind === 'dose')
 			.map((d) => ({ date: d.date, doseMcg: d.doseMcg }))
 			.reverse();
+		// A protocol's own configured dose isn't necessarily what's due *today* — an active loading or
+		// taper phase temporarily overrides it (see peptideSchedule.ts). Surface both the maintenance
+		// figure and today's actual target so the model doesn't read an intentionally
+		// elevated/reduced logged dose as drift from the protocol.
 		protocolSummaries.push({
 			peptideName: nameOf(p.peptideId),
 			route: p.route ? (ROUTE_LABELS[p.route] ?? p.route) : null,
 			frequency: p.frequency,
 			protocolDoseMcg: p.doseMcg,
+			todaysTargetDoseMcg: effectiveDoseMcg(p.doseMcg, p.startDate, toLoadingPhase(p), today, p.endDate, toTaperPhase(p)),
+			loadingPhaseActiveToday: isLoadingPhaseOn(p.startDate, toLoadingPhase(p), today),
+			taperPhaseActiveToday: isTaperPhaseOn(p.endDate, toTaperPhase(p), today),
 			plannedThisWindow: planned,
 			loggedThisWindow: loggedDays.size,
 			loggedDoseMcgValues
