@@ -19,7 +19,15 @@
 		formatDose,
 		type ContainerForm
 	} from '$lib/utils/peptides';
-	import { FREQUENCY_LABELS, isLoadingPhaseOn, loadingEndDate, weekdayMaskLabel, type Frequency } from '$lib/utils/peptideSchedule';
+	import {
+		FREQUENCY_LABELS,
+		isLoadingPhaseOn,
+		isTaperPhaseOn,
+		loadingEndDate,
+		taperStartDate,
+		weekdayMaskLabel,
+		type Frequency
+	} from '$lib/utils/peptideSchedule';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -72,12 +80,16 @@
 	let prLoading = $state(false);
 	let prLoadDose = $state<number | null>(null);
 	let prLoadDays = $state<number | null>(null);
+	let prTaper = $state(false);
+	let prTaperDose = $state<number | null>(null);
+	let prTaperDays = $state<number | null>(null);
 	let prError = $state('');
 	function newProtocol() {
 		prId = null; prPeptideId = data.peptides[0]?.id ?? null; prDose = null; prRoute = ''; prFreq = 'daily';
 		prDays = new Set(); prPerWeek = null; prTime = ''; prStart = todayIso(); prEnd = '';
 		prOn = null; prOff = null; prRotate = true; prNotes = '';
-		prLoading = false; prLoadDose = null; prLoadDays = null; prError = '';
+		prLoading = false; prLoadDose = null; prLoadDays = null;
+		prTaper = false; prTaperDose = null; prTaperDays = null; prError = '';
 		protoOpen = true;
 	}
 	function editProtocol(p: PageData['protocols'][number]) {
@@ -86,7 +98,9 @@
 		prPerWeek = p.perWeek; prTime = p.timeOfDay ?? ''; prStart = p.startDate; prEnd = p.endDate ?? '';
 		prOn = p.cycleWeeksOn; prOff = p.cycleWeeksOff; prRotate = p.rotateSites; prNotes = p.notes ?? '';
 		prLoading = p.loadingDoseMcg != null && p.loadingDurationDays != null;
-		prLoadDose = p.loadingDoseMcg ?? null; prLoadDays = p.loadingDurationDays ?? null; prError = '';
+		prLoadDose = p.loadingDoseMcg ?? null; prLoadDays = p.loadingDurationDays ?? null;
+		prTaper = p.taperDoseMcg != null && p.taperDurationDays != null;
+		prTaperDose = p.taperDoseMcg ?? null; prTaperDays = p.taperDurationDays ?? null; prError = '';
 		protoOpen = true;
 	}
 	function toggleDay(d: number) {
@@ -230,6 +244,15 @@
 											Loading {formatDose(p.loadingDoseMcg)} through {loadingEndDate(p.startDate, { doseMcg: p.loadingDoseMcg, durationDays: p.loadingDurationDays })}
 										{:else}
 											Loading phase done · maintenance {formatDose(p.doseMcg)}
+										{/if}
+									</p>
+								{/if}
+								{#if p.taperDoseMcg != null && p.taperDurationDays != null}
+									<p class="text-xs text-[var(--color-accent)] mt-0.5">
+										{#if isTaperPhaseOn(p.endDate, { doseMcg: p.taperDoseMcg, durationDays: p.taperDurationDays }, todayIso())}
+											Tapering to {formatDose(p.taperDoseMcg)} through {p.endDate}
+										{:else}
+											Tapers to {formatDose(p.taperDoseMcg)} from {taperStartDate(p.endDate, { doseMcg: p.taperDoseMcg, durationDays: p.taperDurationDays })}
 										{/if}
 									</p>
 								{/if}
@@ -417,6 +440,29 @@
 						<input type="checkbox" bind:checked={prRotate} class="h-4 w-4 accent-[var(--color-accent)]" />
 						Suggest rotating injection sites
 					</label>
+					<div class="rounded-[var(--radius-md)] border border-[var(--color-border)] px-3.5 py-2.5">
+						<label class="flex items-center gap-2.5 text-sm text-[var(--color-text)]">
+							<input type="checkbox" bind:checked={prTaper} class="h-4 w-4 accent-[var(--color-accent)]" disabled={!prEnd} />
+							Use a taper phase
+						</label>
+						{#if !prEnd}
+							<p class="text-xs text-[var(--color-text-muted)] mt-1.5">Set an end date above to taper down to it.</p>
+							<input type="hidden" name="taperDoseMcg" value="" />
+							<input type="hidden" name="taperDurationDays" value="" />
+						{:else if prTaper}
+							<p class="text-xs text-[var(--color-text-muted)] mt-1.5 mb-3">
+								A lower dose for the final stretch before the end date, on the same schedule above, stepping down from
+								the maintenance dose entered up top before the protocol ends.
+							</p>
+							<div class="grid grid-cols-2 gap-3">
+								<NumberField label="Taper dose" name="taperDoseMcg" bind:value={prTaperDose} decimalText suffix="mcg" />
+								<NumberField label="For" name="taperDurationDays" bind:value={prTaperDays} suffix="days" />
+							</div>
+						{:else}
+							<input type="hidden" name="taperDoseMcg" value="" />
+							<input type="hidden" name="taperDurationDays" value="" />
+						{/if}
+					</div>
 					<TextareaField label="Notes" name="notes" bind:value={prNotes} rows={2} placeholder="Optional" />
 				</div>
 			</details>
