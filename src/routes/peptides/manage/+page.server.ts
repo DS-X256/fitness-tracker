@@ -122,7 +122,7 @@ export const actions: Actions = {
 			loadingDoseMcg: num(form, 'loadingDoseMcg'),
 			loadingDurationDays: num(form, 'loadingDurationDays'),
 			taperDoseMcg: num(form, 'taperDoseMcg'),
-			taperDurationDays: num(form, 'taperDurationDays')
+			taperAfterDays: num(form, 'taperAfterDays')
 		};
 		try {
 			if (Number.isFinite(id) && id > 0) await updateProtocol(userId, id, input);
