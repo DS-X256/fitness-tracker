@@ -442,18 +442,20 @@
 					</label>
 					<div class="rounded-[var(--radius-md)] border border-[var(--color-border)] px-3.5 py-2.5">
 						<label class="flex items-center gap-2.5 text-sm text-[var(--color-text)]">
-							<input type="checkbox" bind:checked={prTaper} class="h-4 w-4 accent-[var(--color-accent)]" disabled={!prEnd} />
+							<input type="checkbox" bind:checked={prTaper} class="h-4 w-4 accent-[var(--color-accent)]" />
 							Use a taper phase
 						</label>
-						{#if !prEnd}
-							<p class="text-xs text-[var(--color-text-muted)] mt-1.5">Set an end date above to taper down to it.</p>
-							<input type="hidden" name="taperDoseMcg" value="" />
-							<input type="hidden" name="taperDurationDays" value="" />
-						{:else if prTaper}
-							<p class="text-xs text-[var(--color-text-muted)] mt-1.5 mb-3">
-								A lower dose for the final stretch before the end date, on the same schedule above, stepping down from
-								the maintenance dose entered up top before the protocol ends.
-							</p>
+						{#if prTaper}
+							{#if !prEnd}
+								<p class="text-xs text-[var(--color-danger)] mt-1.5 mb-3">
+									Needs an end date — a taper counts down to it, so set one above before saving.
+								</p>
+							{:else}
+								<p class="text-xs text-[var(--color-text-muted)] mt-1.5 mb-3">
+									A lower dose for the final stretch before the end date, on the same schedule above, stepping down
+									from the maintenance dose entered up top before the protocol ends.
+								</p>
+							{/if}
 							<div class="grid grid-cols-2 gap-3">
 								<NumberField label="Taper dose" name="taperDoseMcg" bind:value={prTaperDose} decimalText suffix="mcg" />
 								<NumberField label="For" name="taperDurationDays" bind:value={prTaperDays} suffix="days" />
