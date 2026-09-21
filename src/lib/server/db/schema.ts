@@ -427,12 +427,19 @@ export const progressPhotos = sqliteTable('progress_photos', {
 export const peptides = sqliteTable('peptides', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
 	userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-	/** Encrypted JSON payload: { name, category, vialMg, notes }. AAD-bound to `${userId}:peptides`.
-	 *  vialMg here is display-only reference metadata on the compound itself (e.g. "usually comes as a 5mg
-	 *  vial") — the mg/route-agnostic math always runs off a specific peptideVials row, never this field. */
+	/** Encrypted JSON payload: { name, category, vialMg, notes, components }. AAD-bound to
+	 *  `${userId}:peptides`. vialMg here is display-only reference metadata on the compound itself (e.g.
+	 *  "usually comes as a 5mg vial") — the mg/route-agnostic math always runs off a specific peptideVials
+	 *  row, never this field. `components` (only present when isBlend) is `{ name, percent }[]` — each
+	 *  sub-compound's share of the blend's total mg, e.g. KLOW's GHK-Cu/KPV/BPC-157/TB-500 split. It's the
+	 *  standard ratio the blend shipped as, seeded from BLEND_PRESETS in $lib/utils/peptides and always
+	 *  user-editable; suggestBlendComponentMg() there turns it + a vial's actual total mg into an mg
+	 *  estimate per component — never medical dosing guidance, just "what's probably in this vial". */
 	enc: text('enc').notNull(),
 	/** Cleartext lifecycle flag so the active catalog lists without decrypting; contents stay in enc. */
 	active: integer('active', { mode: 'boolean' }).notNull().default(true),
+	/** Cleartext so the catalog can badge/filter blends without decrypting; identity (name/ratio) stays in enc. */
+	isBlend: integer('is_blend', { mode: 'boolean' }).notNull().default(false),
 	sortOrder: integer('sort_order').notNull().default(0),
 	createdAt: timestamp('created_at')
 }, (t) => [index('peptides_user_idx').on(t.userId)]);

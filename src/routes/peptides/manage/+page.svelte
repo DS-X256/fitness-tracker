@@ -13,10 +13,17 @@
 	import { containerConcentrationMgMl, mcgPerActuation, actuationsPerContainer } from '$lib/utils/delivery';
 	import {
 		ADMIN_ROUTES,
+		BLEND_PRESETS,
 		CONTAINER_FORM_LABELS,
+		MAX_BLEND_COMPONENTS,
 		PEPTIDE_CATEGORIES,
+		blendPercentTotal,
+		blendRatioSummary,
 		categoryLabel,
 		formatDose,
+		isValidBlendTotal,
+		suggestBlendComponentMg,
+		type BlendComponent,
 		type ContainerForm
 	} from '$lib/utils/peptides';
 	import {
@@ -52,13 +59,30 @@
 	let pVialMg = $state<number | null>(null);
 	let pNotes = $state('');
 	let pError = $state('');
+	let pIsBlend = $state(false);
+	let pComponents = $state<BlendComponent[]>([]);
+	const pComponentTotal = $derived(blendPercentTotal(pComponents));
 	function newPeptide() {
 		pId = null; pName = ''; pCategory = ''; pVialMg = null; pNotes = ''; pError = '';
+		pIsBlend = false; pComponents = [];
 		peptideOpen = true;
 	}
 	function editPeptide(p: PageData['peptides'][number]) {
 		pId = p.id; pName = p.name; pCategory = p.category ?? ''; pVialMg = p.vialMg; pNotes = p.notes ?? ''; pError = '';
+		pIsBlend = p.isBlend; pComponents = p.components ? p.components.map((c) => ({ ...c })) : [];
 		peptideOpen = true;
+	}
+	function applyBlendPreset(preset: (typeof BLEND_PRESETS)[number]) {
+		pName = preset.name;
+		pCategory = preset.category;
+		pComponents = preset.components.map((c) => ({ ...c }));
+	}
+	function addComponent() {
+		if (pComponents.length >= MAX_BLEND_COMPONENTS) return;
+		pComponents = [...pComponents, { name: '', percent: 0 }];
+	}
+	function removeComponent(i: number) {
+		pComponents = pComponents.filter((_, idx) => idx !== i);
 	}
 
 	// --- Protocol modal ---
@@ -150,10 +174,13 @@
 		vWaterMl && vActuationVolumeUl ? actuationsPerContainer(vWaterMl, vActuationVolumeUl, vPrimingActuations ?? 0) : null
 	);
 
-	function closeOn(setter: () => void) {
+	const peptideById = $derived(new Map(data.peptides.map((p) => [p.id, p])));
+
+	function closeOn(setter: () => void, onError?: (message: string) => void) {
 		return () => {
 			return async ({ result, update }: { result: { type: string; data?: Record<string, unknown> }; update: (o?: { reset?: boolean }) => Promise<void> }) => {
 				if (result.type === 'success') setter();
+				else if (result.type === 'failure' && onError) onError(typeof result.data?.error === 'string' ? result.data.error : 'Could not save');
 				await update({ reset: false });
 			};
 		};
@@ -188,10 +215,16 @@
 					{#each data.peptides as p (p.id)}
 						<div class="flex items-center gap-3 px-4 py-3">
 							<div class="flex-1 min-w-0">
-								<p class="text-sm font-medium text-[var(--color-text)] truncate {p.active ? '' : 'opacity-50'}">{p.name}</p>
+								<p class="text-sm font-medium text-[var(--color-text)] truncate {p.active ? '' : 'opacity-50'}">
+									{p.name}
+									{#if p.isBlend}<span class="ml-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-accent)] align-middle">Blend</span>{/if}
+								</p>
 								<p class="text-xs text-[var(--color-text-muted)]">
 									{categoryLabel(p.category)}{#if p.vialMg} · {p.vialMg} mg vial{/if}{#if !p.active} · inactive{/if}
 								</p>
+								{#if p.isBlend && p.components}
+									<p class="text-xs text-[var(--color-text-muted)] mt-0.5">{blendRatioSummary(p.components)}</p>
+								{/if}
 							</div>
 							<button type="button" aria-label="Edit" onclick={() => editPeptide(p)} class="h-8 w-8 flex items-center justify-center rounded-full text-[var(--color-text-muted)] hover:bg-[var(--color-surface-alt)]">
 								<Icon name="edit" size={16} />
@@ -310,6 +343,12 @@
 								<p class="text-xs text-[var(--color-text-muted)]">
 									{v.dosesLogged} dose{v.dosesLogged === 1 ? '' : 's'} logged{#if v.expiresAt} · expires {v.expiresAt}{/if}
 								</p>
+								{#if peptideById.get(v.peptideId)?.isBlend && peptideById.get(v.peptideId)?.components && v.vialMg}
+									{@const breakdown = suggestBlendComponentMg(v.vialMg, peptideById.get(v.peptideId)!.components!)}
+									<p class="text-xs text-[var(--color-text-muted)] mt-0.5">
+										Est. {breakdown.map((c) => `${c.name} ${c.mg}mg`).join(' · ')}
+									</p>
+								{/if}
 							</div>
 							<button type="button" aria-label="Edit" onclick={() => editVial(v)} class="h-8 w-8 flex items-center justify-center rounded-full text-[var(--color-text-muted)] hover:bg-[var(--color-surface-alt)]">
 								<Icon name="edit" size={16} />
@@ -336,7 +375,7 @@
 
 	<!-- Compound modal -->
 	<Modal bind:open={peptideOpen} title={pId ? 'Edit compound' : 'Add compound'}>
-		<form method="POST" action="?/savePeptide" class="space-y-4" use:enhance={closeOn(() => (peptideOpen = false))}>
+		<form method="POST" action="?/savePeptide" class="space-y-4" use:enhance={closeOn(() => (peptideOpen = false), (e) => (pError = e))}>
 			<input type="hidden" name="id" value={pId ?? ''} />
 			<div>
 				<label for="p-name" class="block text-sm font-medium text-[var(--color-text)] mb-1.5">Name</label>
@@ -353,6 +392,64 @@
 				<NumberField label="Vial size" name="vialMg" bind:value={pVialMg} decimalText suffix="mg" />
 			</div>
 			<TextareaField label="Notes" name="notes" bind:value={pNotes} rows={2} placeholder="Optional" />
+			<div class="rounded-[var(--radius-md)] border border-[var(--color-border)] px-3.5 py-2.5">
+				<label class="flex items-center gap-2.5 text-sm text-[var(--color-text)]">
+					<input type="checkbox" name="isBlend" bind:checked={pIsBlend} class="h-4 w-4 accent-[var(--color-accent)]" />
+					This is a blend (multiple compounds in one vial)
+				</label>
+				{#if pIsBlend}
+					<p class="text-xs text-[var(--color-text-muted)] mt-1.5 mb-2">
+						Each component's share of the blend's total mg. Pick a common blend to prefill a standard ratio, then
+						rename, re-weight, add, or remove rows to match what you actually have.
+					</p>
+					<div class="flex flex-wrap gap-1.5 mb-3">
+						{#each BLEND_PRESETS as preset (preset.name)}
+							<Chip onclick={() => applyBlendPreset(preset)}>{preset.name}</Chip>
+						{/each}
+					</div>
+					<div class="space-y-2">
+						{#each pComponents as _, i (i)}
+							<div class="flex items-center gap-2">
+								<input
+									type="text"
+									name="componentName"
+									bind:value={pComponents[i].name}
+									placeholder="e.g. GHK-Cu"
+									class="flex-1 h-10 px-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-sm text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+								/>
+								<div class="relative w-24 shrink-0">
+									<input
+										type="number"
+										name="componentPercent"
+										step="0.01"
+										min="0"
+										max="100"
+										bind:value={pComponents[i].percent}
+										class="w-full h-10 pl-3 pr-6 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-sm text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+									/>
+									<span class="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-[var(--color-text-muted)]">%</span>
+								</div>
+								<button
+									type="button"
+									aria-label="Remove component"
+									onclick={() => removeComponent(i)}
+									class="h-10 w-10 shrink-0 flex items-center justify-center rounded-full text-[var(--color-text-muted)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)]"
+								>
+									<Icon name="trash" size={15} />
+								</button>
+							</div>
+						{/each}
+					</div>
+					<div class="flex items-center justify-between mt-2.5">
+						<button type="button" onclick={addComponent} class="text-sm text-[var(--color-accent)] font-medium">+ Add component</button>
+						{#if pComponents.length > 0}
+							<span class={`text-xs tabular-nums ${isValidBlendTotal(pComponents) ? 'text-[var(--color-text-muted)]' : 'text-[var(--color-danger)]'}`}>
+								{pComponentTotal}% total
+							</span>
+						{/if}
+					</div>
+				{/if}
+			</div>
 			{#if pError}<p class="text-sm text-[var(--color-danger)]">{pError}</p>{/if}
 			<Button type="submit" variant="primary" full class="w-full">Save</Button>
 		</form>
@@ -360,7 +457,7 @@
 
 	<!-- Protocol modal -->
 	<Modal bind:open={protoOpen} title={prId ? 'Edit protocol' : 'Add protocol'}>
-		<form method="POST" action="?/saveProtocol" class="space-y-4" use:enhance={closeOn(() => (protoOpen = false))}>
+		<form method="POST" action="?/saveProtocol" class="space-y-4" use:enhance={closeOn(() => (protoOpen = false), (e) => (prError = e))}>
 			<input type="hidden" name="id" value={prId ?? ''} />
 			<input type="hidden" name="rotateSites" value={prRotate ? 'on' : ''} />
 			<div>
@@ -473,7 +570,7 @@
 
 	<!-- Vial modal -->
 	<Modal bind:open={vialOpen} title={`${vId ? 'Edit' : 'Add'} ${CONTAINER_FORM_LABELS[vForm].toLowerCase()}`}>
-		<form method="POST" action="?/saveVial" class="space-y-4" use:enhance={closeOn(() => (vialOpen = false))}>
+		<form method="POST" action="?/saveVial" class="space-y-4" use:enhance={closeOn(() => (vialOpen = false), (e) => (vError = e))}>
 			<input type="hidden" name="id" value={vId ?? ''} />
 			<input type="hidden" name="form" value={vForm} />
 			<div>
