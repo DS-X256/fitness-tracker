@@ -1,0 +1,1 @@
+ALTER TABLE `peptides` ADD `is_blend` integer DEFAULT false NOT NULL;

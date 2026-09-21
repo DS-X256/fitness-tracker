@@ -284,3 +284,91 @@ function round(n: number, dp: number): number {
 	const f = 10 ** dp;
 	return Math.round(n * f) / f;
 }
+
+/** --- Blends ------------------------------------------------------------------------------------------
+ *  A blend is a peptide compound that's really several compounds combined into one container (e.g. a
+ *  "KLOW" vial). Each component's `percent` is its share of the blend's TOTAL mg — not an absolute mg
+ *  amount — so the same recipe scales to whatever size vial the user actually bought. Percentages are
+ *  reference defaults sourced from commonly-cited compounding ratios, not a dosing recommendation; every
+ *  field is free-text/editable in the UI, matching this app's "no dosing guidance" stance elsewhere. */
+export type BlendComponent = { name: string; percent: number };
+
+export const MAX_BLEND_COMPONENTS = 8;
+
+/** Starter recipes offered when the user marks a compound as a blend — one tap prefills name + component
+ *  ratios, which they can then rename/re-weight/add/remove before saving. Not auto-seeded like
+ *  PRESET_PEPTIDES; blends are a more specialized, opt-in catalog addition. */
+export const BLEND_PRESETS: { name: string; category: PeptideCategory; components: BlendComponent[] }[] = [
+	{
+		name: 'KLOW',
+		category: 'healing',
+		components: [
+			{ name: 'GHK-Cu', percent: 71.43 },
+			{ name: 'KPV', percent: 14.29 },
+			{ name: 'BPC-157', percent: 7.14 },
+			{ name: 'TB-500', percent: 7.14 }
+		]
+	},
+	{
+		name: 'GLOW',
+		category: 'healing',
+		components: [
+			{ name: 'GHK-Cu', percent: 83.33 },
+			{ name: 'BPC-157', percent: 8.33 },
+			{ name: 'TB-500', percent: 8.33 }
+		]
+	},
+	{
+		name: 'BPC-157 / TB-500',
+		category: 'healing',
+		components: [
+			{ name: 'BPC-157', percent: 50 },
+			{ name: 'TB-500', percent: 50 }
+		]
+	},
+	{
+		name: 'CJC-1295 / Ipamorelin',
+		category: 'gh_secretagogue',
+		components: [
+			{ name: 'CJC-1295', percent: 50 },
+			{ name: 'Ipamorelin', percent: 50 }
+		]
+	},
+	{
+		name: 'Semaglutide / Cagrilintide',
+		category: 'glp1',
+		components: [
+			{ name: 'Semaglutide', percent: 50 },
+			{ name: 'Cagrilintide', percent: 50 }
+		]
+	}
+];
+
+/** Sum of a component list's percentages, rounded for display/validation (float-safe). */
+export function blendPercentTotal(components: BlendComponent[]): number {
+	return round(components.reduce((sum, c) => sum + (Number.isFinite(c.percent) ? c.percent : 0), 0), 2);
+}
+
+/** True when a blend's components add up close enough to 100% to accept (small float slack). */
+export function isValidBlendTotal(components: BlendComponent[]): boolean {
+	const total = blendPercentTotal(components);
+	return total >= 99.5 && total <= 100.5;
+}
+
+/** The smart suggestion: given a blend's standard ratio and the actual total mg of a specific vial the
+ *  user owns, estimate how many mg of each component that vial contains. Returns null mg (rather than 0)
+ *  when the total isn't known yet, so callers can render "—" instead of a misleading zero. */
+export function suggestBlendComponentMg(
+	totalMg: number | null | undefined,
+	components: BlendComponent[]
+): { name: string; mg: number | null }[] {
+	return components.map((c) => ({
+		name: c.name,
+		mg: totalMg != null && Number.isFinite(totalMg) ? round((totalMg * c.percent) / 100, 2) : null
+	}));
+}
+
+/** Compact "GHK-Cu 71% · KPV 14% · ..." label for list rows, independent of any specific vial size. */
+export function blendRatioSummary(components: BlendComponent[]): string {
+	return components.map((c) => `${c.name} ${round(c.percent, 1)}%`).join(' · ');
+}

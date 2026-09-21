@@ -71,11 +71,18 @@ export const actions: Actions = {
 		const form = await request.formData();
 		const id = Number(form.get('id'));
 		const category = String(form.get('category') ?? '');
+		const isBlend = form.get('isBlend') === 'on';
+		const componentNames = form.getAll('componentName').map((v) => String(v));
+		const componentPercents = form.getAll('componentPercent').map((v) => parseDecimal(String(v)));
 		const input = {
 			name: str(form, 'name') ?? '',
 			category: isPeptideCategory(category) ? category : null,
 			vialMg: num(form, 'vialMg'),
-			notes: str(form, 'notes')
+			notes: str(form, 'notes'),
+			isBlend,
+			components: isBlend
+				? componentNames.map((name, i) => ({ name, percent: componentPercents[i] }))
+				: null
 		};
 		try {
 			if (Number.isFinite(id) && id > 0) await updatePeptide(userId, id, input);

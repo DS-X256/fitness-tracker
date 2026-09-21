@@ -2,7 +2,14 @@ import { db } from '$lib/server/db';
 import { peptides, peptideDoses } from '$lib/server/db/schema';
 import { and, asc, eq, sql } from 'drizzle-orm';
 import { decryptJson, encryptJson } from '$lib/server/crypto/fieldCrypto';
-import { isPeptideCategory, type PeptideCategory } from '$lib/utils/peptides';
+import {
+	blendPercentTotal,
+	isPeptideCategory,
+	isValidBlendTotal,
+	MAX_BLEND_COMPONENTS,
+	type BlendComponent,
+	type PeptideCategory
+} from '$lib/utils/peptides';
 
 // The compound catalog. Sensitive fields (name, category, vial size, notes) live encrypted in `enc`;
 // only lifecycle flags are cleartext. Name-uniqueness is enforced here in TypeScript because the plaintext
@@ -16,11 +23,13 @@ type PeptideEnc = {
 	category: PeptideCategory | null;
 	vialMg: number | null;
 	notes: string | null;
+	components: BlendComponent[] | null;
 };
 
 export type Peptide = {
 	id: number;
 	active: boolean;
+	isBlend: boolean;
 	sortOrder: number;
 	createdAt: Date;
 } & PeptideEnc;
@@ -32,6 +41,8 @@ export type PeptideInput = {
 	category?: PeptideCategory | null;
 	vialMg?: number | null;
 	notes?: string | null;
+	isBlend?: boolean;
+	components?: BlendComponent[] | null;
 };
 
 function decode(row: typeof peptides.$inferSelect): Peptide {
@@ -39,16 +50,38 @@ function decode(row: typeof peptides.$inferSelect): Peptide {
 	return {
 		id: row.id,
 		active: row.active,
+		isBlend: row.isBlend,
 		sortOrder: row.sortOrder,
 		createdAt: row.createdAt,
 		name: enc.name,
 		category: enc.category ?? null,
 		vialMg: enc.vialMg ?? null,
-		notes: enc.notes ?? null
+		notes: enc.notes ?? null,
+		components: enc.components ?? null
 	};
 }
 
-function sanitize(input: Required<PeptideInput>): PeptideEnc {
+function sanitizeComponents(isBlend: boolean, input: BlendComponent[] | null | undefined): BlendComponent[] | null {
+	if (!isBlend) return null;
+	const raw = (input ?? []).map((c) => ({ name: (c.name ?? '').trim(), percent: c.percent }));
+	const cleaned = raw.filter((c) => c.name !== '' || Number.isFinite(c.percent));
+	if (cleaned.length < 2) throw new Error('A blend needs at least 2 components');
+	if (cleaned.length > MAX_BLEND_COMPONENTS) throw new Error(`A blend can have at most ${MAX_BLEND_COMPONENTS} components`);
+	const components = cleaned.map((c) => {
+		if (!c.name) throw new Error('Each blend component needs a name');
+		if (c.name.length > 100) throw new Error('Component name is too long');
+		if (!Number.isFinite(c.percent) || c.percent <= 0 || c.percent > 100) {
+			throw new Error(`${c.name}'s share must be a percentage between 0 and 100`);
+		}
+		return { name: c.name, percent: Math.round(c.percent * 100) / 100 };
+	});
+	if (!isValidBlendTotal(components)) {
+		throw new Error(`Component percentages should add up to 100% (currently ${blendPercentTotal(components)}%)`);
+	}
+	return components;
+}
+
+function sanitize(input: Required<Pick<PeptideInput, 'name' | 'category' | 'vialMg' | 'notes'>> & PeptideInput): PeptideEnc {
 	const name = (input.name ?? '').trim();
 	if (!name) throw new Error('Peptide name is required');
 	if (name.length > 100) throw new Error('Name is too long');
@@ -61,7 +94,8 @@ function sanitize(input: Required<PeptideInput>): PeptideEnc {
 		vialMg = Math.round(input.vialMg * 1000) / 1000;
 	}
 	const notes = input.notes?.trim() || null;
-	return { name, category, vialMg, notes };
+	const components = sanitizeComponents(input.isBlend ?? false, input.components);
+	return { name, category, vialMg, notes, components };
 }
 
 export async function listPeptides(
@@ -103,16 +137,19 @@ async function assertNameFree(userId: number, name: string, exceptId?: number) {
 }
 
 export async function createPeptide(userId: number, input: PeptideInput): Promise<Peptide> {
+	const isBlend = input.isBlend ?? false;
 	const data = sanitize({
 		name: input.name ?? '',
 		category: input.category ?? null,
 		vialMg: input.vialMg ?? null,
-		notes: input.notes ?? null
+		notes: input.notes ?? null,
+		isBlend,
+		components: input.components ?? null
 	});
 	await assertNameFree(userId, data.name);
 	const [row] = await db
 		.insert(peptides)
-		.values({ userId, enc: encryptJson(data, aad(userId)), createdAt: new Date() })
+		.values({ userId, enc: encryptJson(data, aad(userId)), isBlend, createdAt: new Date() })
 		.returning();
 	return decode(row);
 }
@@ -120,16 +157,19 @@ export async function createPeptide(userId: number, input: PeptideInput): Promis
 export async function updatePeptide(userId: number, id: number, input: PeptideInput): Promise<void> {
 	const current = await getPeptide(userId, id);
 	if (!current) throw new Error('Peptide not found');
+	const isBlend = input.isBlend === undefined ? current.isBlend : input.isBlend;
 	const merged = sanitize({
 		name: input.name ?? current.name,
 		category: input.category === undefined ? current.category : input.category,
 		vialMg: input.vialMg === undefined ? current.vialMg : input.vialMg,
-		notes: input.notes === undefined ? current.notes : input.notes
+		notes: input.notes === undefined ? current.notes : input.notes,
+		isBlend,
+		components: input.components === undefined ? current.components : input.components
 	});
 	await assertNameFree(userId, merged.name, id);
 	await db
 		.update(peptides)
-		.set({ enc: encryptJson(merged, aad(userId)) })
+		.set({ enc: encryptJson(merged, aad(userId)), isBlend })
 		.where(and(eq(peptides.id, id), eq(peptides.userId, userId)));
 }
 
