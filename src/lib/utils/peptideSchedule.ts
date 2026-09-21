@@ -183,6 +183,17 @@ export function effectiveDoseMcg(
 	return maintenanceDoseMcg;
 }
 
+/** The first date on or after `fromIso` with a dose scheduled, or null when there's none inside
+ *  `horizonDays`. Null is also the honest answer for 'x_per_week', which sets a weekly target rather
+ *  than specific days — isDueOn never fires for it, so there is no next date to count down to. */
+export function nextDueDate(s: ProtocolSchedule, fromIso: string, horizonDays = 120): string | null {
+	for (let i = 0; i <= horizonDays; i++) {
+		const d = shiftIsoDate(fromIso, i);
+		if (isDueOn(s, d)) return d;
+	}
+	return null;
+}
+
 /** Count of scheduled doses across [fromIso, toIso] inclusive — the denominator for adherence.
  *  For 'x_per_week', counts perWeek per whole week in range (approximate, since days aren't fixed). */
 export function scheduledCount(s: ProtocolSchedule, fromIso: string, toIso: string): number {
