@@ -372,3 +372,132 @@ export function suggestBlendComponentMg(
 export function blendRatioSummary(components: BlendComponent[]): string {
 	return components.map((c) => `${c.name} ${round(c.percent, 1)}%`).join(' · ');
 }
+
+/** --- Active-in-body estimate ---------------------------------------------------------------------
+ *  A rough single-compartment elimination model — exponential decay from each logged dose, summed —
+ *  for long-acting peptides where "how much is still circulating" is meaningful. Weekly GLP-1 dosing
+ *  (Retatrutide, Semaglutide, Tirzepatide, Cagrilintide) is the main case: a dose from 4 days ago is
+ *  still mostly present. Not a real PK model (no absorption/distribution phase, one terminal half-life
+ *  only) and not dosing guidance — a ballpark for someone tracking their own regimen, same spirit as
+ *  the rest of this file. halfLifeHours lives on the peptide record itself (reference-only,
+ *  user-editable, same pattern as vialMg); STANDARD_HALF_LIVES_HOURS below just prefills it. */
+
+/** Published/label terminal half-lives, in hours, for compounds whose PK is actually characterized.
+ *  Approximate by nature (they vary with dose, route and person) — they only ever PREFILL a field the
+ *  user can overwrite. Order matters: suggestHalfLifeHours takes the first key CONTAINED in the name, so
+ *  a more specific variant must precede the bare name it contains ('cjc-1295 dac' before 'cjc-1295').
+ *  Deliberately absent: BPC-157, TB-500, GHK-Cu, KPV and friends — no dependable human PK to quote, so
+ *  those compounds get no suggestion and the field stays the user's own to fill in. */
+export const STANDARD_HALF_LIVES_HOURS: Record<string, number> = {
+	'cjc-1295 dac': 168, // with DAC: ~6-8 days
+	'cjc-1295': 0.5, // without DAC (mod-GRF 1-29): ~30 min
+	semaglutide: 168, // ~7 days
+	cagrilintide: 168, // ~7 days
+	retatrutide: 144, // ~6 days
+	survodutide: 150, // ~6 days
+	tirzepatide: 120, // ~5 days
+	dulaglutide: 113, // ~4.7 days
+	liraglutide: 13,
+	bremelanotide: 2.7,
+	'pt-141': 2.7, // bremelanotide under its common name
+	exenatide: 2.4,
+	ipamorelin: 2,
+	tesamorelin: 0.6,
+	sermorelin: 0.2
+};
+
+/** Case-insensitive, substring match against STANDARD_HALF_LIVES_HOURS — tolerant of a compound name
+ *  that isn't an exact key (e.g. "Retatrutide 10mg/mL"). Null when nothing matches. */
+export function suggestHalfLifeHours(name: string): number | null {
+	const n = name.trim().toLowerCase();
+	if (!n) return null;
+	for (const [key, hours] of Object.entries(STANDARD_HALF_LIVES_HOURS)) {
+		if (n.includes(key)) return hours;
+	}
+	return null;
+}
+
+/** When a dose logged on `date` is treated as having been administered. A dose row carries no reliable
+ *  time of day, so everything anchors to local noon — one shared convention so the curve, the "now"
+ *  readout and the chart's step edges all agree. */
+function doseInstantMs(date: string): number {
+	return new Date(`${date}T12:00:00`).getTime();
+}
+
+/** Sum of each logged dose's exponential-decay remainder as of `now`. Doses are anchored to noon on
+ *  their logged date (a dose row has no reliable time-of-day), so the curve moves smoothly through the
+ *  day rather than stepping once at midnight. A future-dated dose is ignored; one more than 20
+ *  half-lives old is skipped rather than computed (< 1e-6 of the original amount either way). */
+export function activeAmountMcg(
+	doses: { doseMcg: number; date: string }[],
+	halfLifeHours: number | null | undefined,
+	now: Date = new Date()
+): number {
+	if (halfLifeHours == null || !Number.isFinite(halfLifeHours) || halfLifeHours <= 0) return 0;
+	let total = 0;
+	for (const d of doses) {
+		if (!Number.isFinite(d.doseMcg) || d.doseMcg <= 0) continue;
+		const dosedAtMs = doseInstantMs(d.date);
+		if (!Number.isFinite(dosedAtMs)) continue;
+		const elapsedHours = (now.getTime() - dosedAtMs) / 3_600_000;
+		if (elapsedHours < 0) continue;
+		const halfLivesElapsed = elapsedHours / halfLifeHours;
+		if (halfLivesElapsed > 20) continue;
+		total += d.doseMcg * Math.pow(0.5, halfLivesElapsed);
+	}
+	return total;
+}
+
+/** One sample of the estimated level curve: `t` is an epoch-ms instant, `mcg` the amount still active. */
+export type LevelPoint = { t: number; mcg: number };
+
+/** The same decay math as activeAmountMcg, sampled across [fromMs, toMs] so it can be drawn as a curve.
+ *  On top of a uniform grid of `maxSamples` points it pins two samples per dose — one a millisecond
+ *  before it lands, one at it — so each dose reads as the vertical step it really is instead of a ramp
+ *  smeared across however many hours the grid happens to step by. Returned ascending by time. */
+export function levelSeries(
+	doses: { doseMcg: number; date: string }[],
+	halfLifeHours: number | null | undefined,
+	fromMs: number,
+	toMs: number,
+	maxSamples = 200
+): LevelPoint[] {
+	if (halfLifeHours == null || !Number.isFinite(halfLifeHours) || halfLifeHours <= 0) return [];
+	if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs <= fromMs) return [];
+	const times = new Set<number>();
+	const step = (toMs - fromMs) / Math.max(1, maxSamples - 1);
+	for (let i = 0; i < maxSamples; i++) times.add(Math.round(fromMs + i * step));
+	for (const d of doses) {
+		const at = doseInstantMs(d.date);
+		if (!Number.isFinite(at) || at <= fromMs || at > toMs) continue;
+		times.add(at - 1);
+		times.add(at);
+	}
+	return [...times].sort((a, b) => a - b).map((t) => ({ t, mcg: activeAmountMcg(doses, halfLifeHours, new Date(t)) }));
+}
+
+/** An estimated level split into number + unit, so callers can style the unit separately (StatCard) or
+ *  join it (formatLevel). Deliberately coarser than formatDose, which keeps three decimals of a mg:
+ *  microgram precision on a curve this approximate would claim accuracy the math doesn't have. */
+export function levelParts(mcg: number | null | undefined): { value: string; unit: string } {
+	if (mcg == null || !Number.isFinite(mcg)) return { value: '—', unit: '' };
+	if (mcg >= 1000) return { value: (mcg / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 }), unit: 'mg' };
+	return { value: Math.round(mcg).toLocaleString(), unit: 'mcg' };
+}
+
+/** levelParts as one string, for running text. */
+export function formatLevel(mcg: number | null | undefined): string {
+	const { value, unit } = levelParts(mcg);
+	return unit ? `${value} ${unit}` : value;
+}
+
+/** "6 days" / "18 hours" — labels a half-life value in forms and summaries. */
+export function formatHalfLife(hours: number | null | undefined): string {
+	if (hours == null || !Number.isFinite(hours) || hours <= 0) return '—';
+	if (hours >= 24) {
+		const days = round(hours / 24, 1);
+		return `${days} day${days === 1 ? '' : 's'}`;
+	}
+	const h = round(hours, 1);
+	return `${h} hour${h === 1 ? '' : 's'}`;
+}

@@ -9,7 +9,7 @@
 	import AdherenceCalendar from '$lib/components/peptides/AdherenceCalendar.svelte';
 	import LogDoseModal from '$lib/components/peptides/LogDoseModal.svelte';
 	import AiInsightCard from '$lib/components/ai/AiInsightCard.svelte';
-	import { formatDose, siteLabel, MEASURE_UNIT_LABELS } from '$lib/utils/peptides';
+	import { formatDose, formatHalfLife, formatLevel, siteLabel, MEASURE_UNIT_LABELS } from '$lib/utils/peptides';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -118,6 +118,35 @@
 						</div>
 					{/each}
 				</Card>
+			</div>
+		{/if}
+
+		<!-- Active in body — a rough decay estimate for long-acting compounds (see activeAmountMcg). -->
+		{#if data.activeLevels.length > 0}
+			<div>
+				<div class="flex items-center justify-between mb-2 px-1">
+					<h2 class="section-label">Active in body</h2>
+					<a href="/peptides/levels" class="flex items-center gap-0.5 text-sm font-medium text-[var(--color-accent)]">
+						See levels <Icon name="chevron-right" size={16} />
+					</a>
+				</div>
+				<Card padded={false} class="divide-y divide-[var(--color-border)]">
+					{#each data.activeLevels as a (a.peptideId)}
+						<div class="flex items-center gap-3 px-4 py-3">
+							<div class="flex-1 min-w-0">
+								<p class="text-sm font-medium text-[var(--color-text)] truncate">{a.peptideName}</p>
+								<p class="text-xs text-[var(--color-text-muted)] tabular-nums">
+									~{formatHalfLife(a.halfLifeHours)} half-life{#if a.lastDoseDate}{' · '}last dose {fmtDate(a.lastDoseDate)}{/if}
+								</p>
+							</div>
+							<span class="text-sm font-semibold text-[var(--color-text)] tabular-nums">{formatLevel(a.activeMcg)}</span>
+						</div>
+					{/each}
+				</Card>
+				<p class="mt-1.5 px-1 text-xs text-[var(--color-text-muted)]">
+					A rough estimate from your logged doses and each compound's reference half-life — not a real
+					PK model, and not dosing guidance.
+				</p>
 			</div>
 		{/if}
 
