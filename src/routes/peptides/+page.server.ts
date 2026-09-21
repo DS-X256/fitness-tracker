@@ -33,6 +33,7 @@ import {
 	containerTotalMcg
 } from '$lib/utils/delivery';
 import {
+	activeAmountMcg,
 	isAdminRoute,
 	isApplicationSite,
 	isDoseKind,
@@ -162,6 +163,25 @@ export const load: PageServerLoad = async ({ locals }) => {
 		};
 	});
 
+	// --- Active-in-body estimate (see activeAmountMcg): only for compounds with a half-life set, which
+	// in practice means the long-acting GLP-1 family — most protocols don't set one and skip this entirely.
+	const peptidesWithHalfLife = peptides.filter((p) => p.halfLifeHours != null);
+	const allDoses = peptidesWithHalfLife.length > 0 ? await listDoses(userId) : [];
+	const now = new Date();
+	const activeLevels = peptidesWithHalfLife
+		.map((p) => {
+			const doses = allDoses.filter((d) => d.peptideId === p.id && d.kind === 'dose');
+			return {
+				peptideId: p.id,
+				peptideName: p.name,
+				activeMcg: activeAmountMcg(doses, p.halfLifeHours, now),
+				halfLifeHours: p.halfLifeHours,
+				lastDoseDate: doses[0]?.date ?? null
+			};
+		})
+		.filter((a) => a.activeMcg > 0.01)
+		.sort((a, b) => b.activeMcg - a.activeMcg);
+
 	return {
 		encryptionReady: true as const,
 		today,
@@ -170,6 +190,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		adherence,
 		calendar,
 		vialAlerts,
+		activeLevels,
 		siteHistory,
 		aiInsightsEnabled: settings.aiPeptideInsightsEnabled,
 		aiAvailable: aiAvailable(),

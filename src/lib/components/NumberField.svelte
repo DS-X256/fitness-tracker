@@ -31,6 +31,17 @@
 	const id = $derived(`field-${name}`);
 	let text = $state(value == null ? '' : String(value));
 
+	// Resyncs the visible text when `value` changes from OUTSIDE this input (e.g. a parent programmatically
+	// setting the bound value, like a "use the standard amount" suggestion button) — but not on every
+	// keystroke, since a mid-edit string like "1." parses to 1 and would otherwise get clobbered back to "1"
+	// as the user types the fraction. Comparing against the parse of the current text tells the two apart:
+	// only an external change makes them disagree.
+	$effect(() => {
+		if (value !== (text.trim() === '' ? null : parseDecimal(text))) {
+			text = value == null ? '' : String(value);
+		}
+	});
+
 	function handleTextInput(e: Event) {
 		const raw = (e.currentTarget as HTMLInputElement).value;
 		text = raw;

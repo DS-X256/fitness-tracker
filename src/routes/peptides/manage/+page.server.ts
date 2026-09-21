@@ -82,7 +82,8 @@ export const actions: Actions = {
 			isBlend,
 			components: isBlend
 				? componentNames.map((name, i) => ({ name, percent: componentPercents[i] }))
-				: null
+				: null,
+			halfLifeHours: num(form, 'halfLifeHours')
 		};
 		try {
 			if (Number.isFinite(id) && id > 0) await updatePeptide(userId, id, input);

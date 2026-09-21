@@ -24,6 +24,10 @@ type PeptideEnc = {
 	vialMg: number | null;
 	notes: string | null;
 	components: BlendComponent[] | null;
+	/** Reference elimination half-life in hours, for the "active in body" estimate (see activeAmountMcg
+	 *  in $lib/utils/peptides). Display-only reference metadata, same as vialMg — never used to compute
+	 *  a dose, only to decay logged ones. Seeded from STANDARD_HALF_LIVES_HOURS, always user-editable. */
+	halfLifeHours: number | null;
 };
 
 export type Peptide = {
@@ -43,6 +47,7 @@ export type PeptideInput = {
 	notes?: string | null;
 	isBlend?: boolean;
 	components?: BlendComponent[] | null;
+	halfLifeHours?: number | null;
 };
 
 function decode(row: typeof peptides.$inferSelect): Peptide {
@@ -57,7 +62,8 @@ function decode(row: typeof peptides.$inferSelect): Peptide {
 		category: enc.category ?? null,
 		vialMg: enc.vialMg ?? null,
 		notes: enc.notes ?? null,
-		components: enc.components ?? null
+		components: enc.components ?? null,
+		halfLifeHours: enc.halfLifeHours ?? null
 	};
 }
 
@@ -95,7 +101,14 @@ function sanitize(input: Required<Pick<PeptideInput, 'name' | 'category' | 'vial
 	}
 	const notes = input.notes?.trim() || null;
 	const components = sanitizeComponents(input.isBlend ?? false, input.components);
-	return { name, category, vialMg, notes, components };
+	let halfLifeHours: number | null = null;
+	if (input.halfLifeHours != null) {
+		if (!Number.isFinite(input.halfLifeHours) || input.halfLifeHours <= 0 || input.halfLifeHours > 5000) {
+			throw new Error('Half-life (hours) is out of range');
+		}
+		halfLifeHours = Math.round(input.halfLifeHours * 100) / 100;
+	}
+	return { name, category, vialMg, notes, components, halfLifeHours };
 }
 
 export async function listPeptides(
@@ -144,7 +157,8 @@ export async function createPeptide(userId: number, input: PeptideInput): Promis
 		vialMg: input.vialMg ?? null,
 		notes: input.notes ?? null,
 		isBlend,
-		components: input.components ?? null
+		components: input.components ?? null,
+		halfLifeHours: input.halfLifeHours ?? null
 	});
 	await assertNameFree(userId, data.name);
 	const [row] = await db
@@ -164,7 +178,8 @@ export async function updatePeptide(userId: number, id: number, input: PeptideIn
 		vialMg: input.vialMg === undefined ? current.vialMg : input.vialMg,
 		notes: input.notes === undefined ? current.notes : input.notes,
 		isBlend,
-		components: input.components === undefined ? current.components : input.components
+		components: input.components === undefined ? current.components : input.components,
+		halfLifeHours: input.halfLifeHours === undefined ? current.halfLifeHours : input.halfLifeHours
 	});
 	await assertNameFree(userId, merged.name, id);
 	await db

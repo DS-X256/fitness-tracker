@@ -372,3 +372,66 @@ export function suggestBlendComponentMg(
 export function blendRatioSummary(components: BlendComponent[]): string {
 	return components.map((c) => `${c.name} ${round(c.percent, 1)}%`).join(' · ');
 }
+
+/** --- Active-in-body estimate ---------------------------------------------------------------------
+ *  A rough single-compartment elimination model — exponential decay from each logged dose, summed —
+ *  for long-acting peptides where "how much is still circulating" is meaningful. Weekly GLP-1 dosing
+ *  (Retatrutide, Semaglutide, Tirzepatide, Cagrilintide) is the main case: a dose from 4 days ago is
+ *  still mostly present. Not a real PK model (no absorption/distribution phase, one terminal half-life
+ *  only) and not dosing guidance — a ballpark for someone tracking their own regimen, same spirit as
+ *  the rest of this file. halfLifeHours lives on the peptide record itself (reference-only,
+ *  user-editable, same pattern as vialMg); STANDARD_HALF_LIVES_HOURS below just prefills it. */
+
+export const STANDARD_HALF_LIVES_HOURS: Record<string, number> = {
+	semaglutide: 168, // ~7 days
+	tirzepatide: 120, // ~5 days
+	retatrutide: 144, // ~6 days
+	liraglutide: 13,
+	cagrilintide: 168 // ~7 days
+};
+
+/** Case-insensitive, substring match against STANDARD_HALF_LIVES_HOURS — tolerant of a compound name
+ *  that isn't an exact key (e.g. "Retatrutide 10mg/mL"). Null when nothing matches. */
+export function suggestHalfLifeHours(name: string): number | null {
+	const n = name.trim().toLowerCase();
+	if (!n) return null;
+	for (const [key, hours] of Object.entries(STANDARD_HALF_LIVES_HOURS)) {
+		if (n.includes(key)) return hours;
+	}
+	return null;
+}
+
+/** Sum of each logged dose's exponential-decay remainder as of `now`. Doses are anchored to noon on
+ *  their logged date (a dose row has no reliable time-of-day), so the curve moves smoothly through the
+ *  day rather than stepping once at midnight. A future-dated dose is ignored; one more than 20
+ *  half-lives old is skipped rather than computed (< 1e-6 of the original amount either way). */
+export function activeAmountMcg(
+	doses: { doseMcg: number; date: string }[],
+	halfLifeHours: number | null | undefined,
+	now: Date = new Date()
+): number {
+	if (halfLifeHours == null || !Number.isFinite(halfLifeHours) || halfLifeHours <= 0) return 0;
+	let total = 0;
+	for (const d of doses) {
+		if (!Number.isFinite(d.doseMcg) || d.doseMcg <= 0) continue;
+		const dosedAtMs = new Date(`${d.date}T12:00:00`).getTime();
+		if (!Number.isFinite(dosedAtMs)) continue;
+		const elapsedHours = (now.getTime() - dosedAtMs) / 3_600_000;
+		if (elapsedHours < 0) continue;
+		const halfLivesElapsed = elapsedHours / halfLifeHours;
+		if (halfLivesElapsed > 20) continue;
+		total += d.doseMcg * Math.pow(0.5, halfLivesElapsed);
+	}
+	return total;
+}
+
+/** "6 days" / "18 hours" — labels a half-life value in forms and summaries. */
+export function formatHalfLife(hours: number | null | undefined): string {
+	if (hours == null || !Number.isFinite(hours) || hours <= 0) return '—';
+	if (hours >= 24) {
+		const days = round(hours / 24, 1);
+		return `${days} day${days === 1 ? '' : 's'}`;
+	}
+	const h = round(hours, 1);
+	return `${h} hour${h === 1 ? '' : 's'}`;
+}

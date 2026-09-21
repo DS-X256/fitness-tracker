@@ -21,8 +21,10 @@
 		blendRatioSummary,
 		categoryLabel,
 		formatDose,
+		formatHalfLife,
 		isValidBlendTotal,
 		suggestBlendComponentMg,
+		suggestHalfLifeHours,
 		type BlendComponent,
 		type ContainerForm
 	} from '$lib/utils/peptides';
@@ -61,15 +63,18 @@
 	let pError = $state('');
 	let pIsBlend = $state(false);
 	let pComponents = $state<BlendComponent[]>([]);
+	let pHalfLifeHours = $state<number | null>(null);
 	const pComponentTotal = $derived(blendPercentTotal(pComponents));
+	const pSuggestedHalfLife = $derived(suggestHalfLifeHours(pName));
 	function newPeptide() {
 		pId = null; pName = ''; pCategory = ''; pVialMg = null; pNotes = ''; pError = '';
-		pIsBlend = false; pComponents = [];
+		pIsBlend = false; pComponents = []; pHalfLifeHours = null;
 		peptideOpen = true;
 	}
 	function editPeptide(p: PageData['peptides'][number]) {
 		pId = p.id; pName = p.name; pCategory = p.category ?? ''; pVialMg = p.vialMg; pNotes = p.notes ?? ''; pError = '';
 		pIsBlend = p.isBlend; pComponents = p.components ? p.components.map((c) => ({ ...c })) : [];
+		pHalfLifeHours = p.halfLifeHours;
 		peptideOpen = true;
 	}
 	function applyBlendPreset(preset: (typeof BLEND_PRESETS)[number]) {
@@ -220,7 +225,7 @@
 									{#if p.isBlend}<span class="ml-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-accent)] align-middle">Blend</span>{/if}
 								</p>
 								<p class="text-xs text-[var(--color-text-muted)]">
-									{categoryLabel(p.category)}{#if p.vialMg} · {p.vialMg} mg vial{/if}{#if !p.active} · inactive{/if}
+									{categoryLabel(p.category)}{#if p.vialMg} · {p.vialMg} mg vial{/if}{#if p.halfLifeHours} · {formatHalfLife(p.halfLifeHours)} half-life{/if}{#if !p.active} · inactive{/if}
 								</p>
 								{#if p.isBlend && p.components}
 									<p class="text-xs text-[var(--color-text-muted)] mt-0.5">{blendRatioSummary(p.components)}</p>
@@ -390,6 +395,17 @@
 					</select>
 				</div>
 				<NumberField label="Vial size" name="vialMg" bind:value={pVialMg} decimalText suffix="mg" />
+			</div>
+			<div>
+				<NumberField label="Half-life (optional)" name="halfLifeHours" bind:value={pHalfLifeHours} decimalText suffix="hours" />
+				<p class="text-xs text-[var(--color-text-muted)] mt-1.5">
+					Used for the "active in body" estimate on long-acting compounds like GLP-1s — a rough decay
+					curve from your logged doses, not dosing guidance.
+					{#if pSuggestedHalfLife != null && pHalfLifeHours !== pSuggestedHalfLife}
+						Standard for {pName.trim()} is ~{formatHalfLife(pSuggestedHalfLife)}
+						<button type="button" onclick={() => (pHalfLifeHours = pSuggestedHalfLife)} class="text-[var(--color-accent)] font-medium">Use it</button>.
+					{/if}
+				</p>
 			</div>
 			<TextareaField label="Notes" name="notes" bind:value={pNotes} rows={2} placeholder="Optional" />
 			<div class="rounded-[var(--radius-md)] border border-[var(--color-border)] px-3.5 py-2.5">
