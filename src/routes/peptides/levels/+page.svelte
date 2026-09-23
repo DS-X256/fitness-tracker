@@ -112,7 +112,8 @@
 					{fmtDate(compound.lastDoseDate)}{/if}{#if compound.viaBlend}, including what arrived via blends{/if}. A rough single-compartment estimate — not a real PK model, and
 				not dosing guidance. Adjust the half-life under
 				<a href="/peptides/manage" class="text-[var(--color-accent)]">manage</a>.
-			</p>
+			
+					<a href={`/peptides/${compound.id}`} class="text-[var(--color-accent)] font-medium">Open {compound.name}</a></p>
 		</div>
 
 		{#if compound.nextDue || compound.flexibleSchedule}
