@@ -115,7 +115,7 @@ export async function generatePeptideInsight(userId: number): Promise<Result> {
 		return { error: 'AI is not configured or the request failed. Try again later.' };
 	}
 
-	const insight = await save(userId, aiResult.text.trim(), aiResult.model);
+	const insight = await save(userId, aiResult.text.trim(), aiResult.model, '');
 	return { insight, fromCache: false };
 }
 

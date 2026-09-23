@@ -37,7 +37,13 @@ export type AdherenceDose = {
  *    to any same-compound protocol whose active span covers the day.
  *  Primes and patch removals are never assigned — they aren't doses. A blend dose is logged against the
  *  blend's own compound, so it counts toward the blend's protocol and never toward a component's. */
-export function assignDoses(protocols: AdherenceProtocol[], doses: AdherenceDose[]): Map<number, number | null> {
+export function assignDoses(
+	protocols: AdherenceProtocol[],
+	doses: AdherenceDose[],
+	/** Which protocols an UNLINKED dose may be matched to (default: all). Pass the active ones so a paused
+	 *  protocol keeps the doses explicitly logged under it without soaking up new unlinked ones. */
+	canTakeUnlinked: (p: AdherenceProtocol) => boolean = () => true
+): Map<number, number | null> {
 	const out = new Map<number, number | null>();
 	const byId = new Map(protocols.map((p) => [p.id, p]));
 	const filled = new Map<string, number>(); // `${protocolId}|${date}` → doses/skips assigned so far
@@ -54,7 +60,7 @@ export function assignDoses(protocols: AdherenceProtocol[], doses: AdherenceDose
 	}
 	for (const d of countable) {
 		if (out.has(d.id)) continue;
-		const candidates = protocols.filter((p) => p.peptideId === d.peptideId && isWithinActiveSpan(p, d.date));
+		const candidates = protocols.filter((p) => p.peptideId === d.peptideId && canTakeUnlinked(p) && isWithinActiveSpan(p, d.date));
 		const withSlots = candidates.filter((p) => slotsOn(p, d.date) > 0 || p.frequency === 'x_per_week');
 		const pool = withSlots.length > 0 ? withSlots : candidates;
 		if (pool.length === 0) {

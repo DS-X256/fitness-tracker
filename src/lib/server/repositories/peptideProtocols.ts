@@ -3,9 +3,20 @@ import { peptideProtocols } from '$lib/server/db/schema';
 import { and, asc, eq } from 'drizzle-orm';
 import { decryptJson, encryptJson } from '$lib/server/crypto/fieldCrypto';
 import { assertPeptideOwned } from './peptideRefs';
+import { getPeptide, linkComponents, sanitizeComponents } from './peptides';
 import { isValidIsoDate } from '$lib/utils/isoDate';
-import { isAdminRoute, type AdminRoute } from '$lib/utils/peptides';
-import { isFrequency, taperStartDate, type Frequency, type LoadingPhase, type ProtocolSchedule, type TaperPhase } from '$lib/utils/peptideSchedule';
+import { isAdminRoute, type AdminRoute, type BlendComponent } from '$lib/utils/peptides';
+import {
+	isFrequency,
+	MAX_INTERVAL_DAYS,
+	MAX_TIMES_PER_DAY,
+	MIN_INTERVAL_DAYS,
+	taperStartDate,
+	type Frequency,
+	type LoadingPhase,
+	type ProtocolSchedule,
+	type TaperPhase
+} from '$lib/utils/peptideSchedule';
 
 // Protocol templates (the "plan" side). Schedule/dose detail is encrypted in `enc`; startDate + active
 // are cleartext so the list can be ordered/filtered without decrypting.
@@ -34,6 +45,14 @@ type ProtocolEnc = {
 	 *  one is set, or forever if not. Both null together mean "no taper phase". */
 	taperDoseMcg: number | null;
 	taperAfterDays: number | null;
+	/** Doses per scheduled day (1-4). Absent on protocols written before multi-dose days → 1. */
+	timesPerDay: number;
+	/** Days between doses for frequency 'every_n_days' (2-30), null otherwise. */
+	intervalDays: number | null;
+	/** Per-protocol blend mix, overriding the blend compound's default ratio — vendors' mixes vary, and
+	 *  this is the one the user's current vials actually hold. Only ever set for a blend compound. Each
+	 *  logged dose snapshots whichever mix applied (see repositories/peptideDoses.ts). */
+	components: BlendComponent[] | null;
 };
 
 export type Protocol = {
@@ -63,10 +82,14 @@ export type ProtocolInput = {
 	loadingDurationDays?: number | null;
 	taperDoseMcg?: number | null;
 	taperAfterDays?: number | null;
+	timesPerDay?: number | null;
+	intervalDays?: number | null;
+	components?: BlendComponent[] | null;
 };
 
 function decode(row: typeof peptideProtocols.$inferSelect): Protocol {
-	const enc = decryptJson<ProtocolEnc>(row.enc, aad(row.userId));
+	const enc = decryptJson<Partial<ProtocolEnc> & Pick<ProtocolEnc, 'doseMcg' | 'frequency'>>(row.enc, aad(row.userId));
+	// Explicit defaults rather than spreading `enc`: rows written before a field existed simply lack it.
 	return {
 		id: row.id,
 		peptideId: row.peptideId,
@@ -74,7 +97,26 @@ function decode(row: typeof peptideProtocols.$inferSelect): Protocol {
 		active: row.active,
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
-		...enc
+		doseMcg: enc.doseMcg,
+		route: enc.route ?? null,
+		frequency: enc.frequency,
+		weekdayMask: enc.weekdayMask ?? null,
+		perWeek: enc.perWeek ?? null,
+		timeOfDay: enc.timeOfDay ?? null,
+		cycleWeeksOn: enc.cycleWeeksOn ?? null,
+		cycleWeeksOff: enc.cycleWeeksOff ?? null,
+		endDate: enc.endDate ?? null,
+		rotateSites: enc.rotateSites ?? true,
+		notes: enc.notes ?? null,
+		loadingDoseMcg: enc.loadingDoseMcg ?? null,
+		loadingDurationDays: enc.loadingDurationDays ?? null,
+		taperDoseMcg: enc.taperDoseMcg ?? null,
+		taperAfterDays: enc.taperAfterDays ?? null,
+		timesPerDay: enc.timesPerDay ?? 1,
+		intervalDays: enc.intervalDays ?? null,
+		components: enc.components
+			? enc.components.map((c) => ({ name: c.name, percent: c.percent, peptideId: c.peptideId ?? null, labelMg: c.labelMg ?? null }))
+			: null
 	};
 }
 
@@ -87,7 +129,9 @@ export function toSchedule(p: Protocol): ProtocolSchedule {
 		startDate: p.startDate,
 		endDate: p.endDate,
 		cycleWeeksOn: p.cycleWeeksOn,
-		cycleWeeksOff: p.cycleWeeksOff
+		cycleWeeksOff: p.cycleWeeksOff,
+		intervalDays: p.intervalDays,
+		timesPerDay: p.timesPerDay
 	};
 }
 
@@ -139,6 +183,16 @@ function sanitize(input: ProtocolInput): { enc: ProtocolEnc; startDate: string }
 		perWeek = posIntOrNull(input.perWeek, 21, 'Doses per week');
 		if (perWeek == null) throw new Error('Enter how many doses per week');
 	}
+	let intervalDays: number | null = null;
+	if (input.frequency === 'every_n_days') {
+		intervalDays = posIntOrNull(input.intervalDays, MAX_INTERVAL_DAYS, 'Days between doses');
+		if (intervalDays == null || intervalDays < MIN_INTERVAL_DAYS) {
+			throw new Error(`Enter how many days between doses (${MIN_INTERVAL_DAYS}-${MAX_INTERVAL_DAYS})`);
+		}
+	}
+	// A flexible weekly target has no per-day slots to multiply.
+	const timesPerDay =
+		input.frequency === 'x_per_week' ? 1 : (posIntOrNull(input.timesPerDay ?? 1, MAX_TIMES_PER_DAY, 'Doses per day') ?? 1);
 
 	const on = posIntOrNull(input.cycleWeeksOn, 104, 'Weeks on');
 	const off = posIntOrNull(input.cycleWeeksOff, 104, 'Weeks off');
@@ -194,9 +248,21 @@ function sanitize(input: ProtocolInput): { enc: ProtocolEnc; startDate: string }
 			loadingDoseMcg,
 			loadingDurationDays,
 			taperDoseMcg,
-			taperAfterDays
+			taperAfterDays,
+			timesPerDay,
+			intervalDays,
+			components: null // resolved against the compound in resolveMix() — needs a DB read
 		}
 	};
+}
+
+/** The per-protocol blend mix, validated and linked to the same component compounds as the blend's own
+ *  default. Null (use the compound's default) when the compound isn't a blend or no override was given. */
+async function resolveMix(userId: number, peptideId: number, input: BlendComponent[] | null | undefined): Promise<BlendComponent[] | null> {
+	if (!input || input.length === 0) return null;
+	const compound = await getPeptide(userId, peptideId);
+	if (!compound?.isBlend) return null;
+	return linkComponents(userId, compound.id, sanitizeComponents(input), compound.category);
 }
 
 export async function listProtocols(
@@ -225,6 +291,7 @@ export async function getProtocol(userId: number, id: number): Promise<Protocol 
 export async function createProtocol(userId: number, input: ProtocolInput): Promise<Protocol> {
 	const { enc, startDate } = sanitize(input);
 	await assertPeptideOwned(userId, input.peptideId);
+	enc.components = await resolveMix(userId, input.peptideId, input.components);
 	const now = new Date();
 	const [row] = await db
 		.insert(peptideProtocols)
@@ -243,6 +310,7 @@ export async function createProtocol(userId: number, input: ProtocolInput): Prom
 export async function updateProtocol(userId: number, id: number, input: ProtocolInput): Promise<void> {
 	const { enc, startDate } = sanitize(input);
 	await assertPeptideOwned(userId, input.peptideId);
+	enc.components = await resolveMix(userId, input.peptideId, input.components);
 	await db
 		.update(peptideProtocols)
 		// peptideId included: switching a protocol to a different compound used to be silently dropped.

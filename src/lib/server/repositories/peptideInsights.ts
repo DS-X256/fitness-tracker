@@ -10,17 +10,21 @@ import { decryptJson, encryptJson } from '$lib/server/crypto/fieldCrypto';
 
 const aad = (userId: number) => `${userId}:peptide_insights`;
 
-type InsightEnc = { content: string; model: string };
+/** `fingerprint` is a hash of the exact facts the summary was generated from (see ai/peptideFacts.ts),
+ *  so the page can tell a summary is out of date the moment a dose is logged — rather than serving a
+ *  stale one for its whole cooldown, which is how it used to "forget" doses. Absent on older rows. */
+type InsightEnc = { content: string; model: string; fingerprint?: string | null };
 
 export type PeptideInsight = {
 	content: string;
 	model: string;
 	generatedAt: Date;
+	fingerprint: string | null;
 };
 
 function decode(row: typeof peptideInsights.$inferSelect): PeptideInsight {
 	const enc = decryptJson<InsightEnc>(row.enc, aad(row.userId));
-	return { content: enc.content, model: enc.model, generatedAt: row.generatedAt };
+	return { content: enc.content, model: enc.model, generatedAt: row.generatedAt, fingerprint: enc.fingerprint ?? null };
 }
 
 export async function getCached(userId: number): Promise<PeptideInsight | null> {
@@ -28,12 +32,12 @@ export async function getCached(userId: number): Promise<PeptideInsight | null> 
 	return row ? decode(row) : null;
 }
 
-export async function save(userId: number, content: string, model: string): Promise<PeptideInsight> {
+export async function save(userId: number, content: string, model: string, fingerprint: string): Promise<PeptideInsight> {
 	const generatedAt = new Date();
-	const enc = encryptJson({ content, model } satisfies InsightEnc, aad(userId));
+	const enc = encryptJson({ content, model, fingerprint } satisfies InsightEnc, aad(userId));
 	await db
 		.insert(peptideInsights)
 		.values({ userId, enc, generatedAt })
 		.onConflictDoUpdate({ target: peptideInsights.userId, set: { enc, generatedAt } });
-	return { content, model, generatedAt };
+	return { content, model, generatedAt, fingerprint };
 }
