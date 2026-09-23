@@ -11,6 +11,7 @@
 		required = false,
 		suffix = '',
 		decimalText = false,
+		id: idProp,
 		class: className = ''
 	}: {
 		label?: string;
@@ -25,10 +26,12 @@
 		 * a native number input — for values like workout weight where exact entry matters more than native
 		 * step validation, which caps precision and can reject a typed "," outright. */
 		decimalText?: boolean;
+		/** Explicit element id — needed when the same `name` repeats on one page (e.g. per-row inputs). */
+		id?: string;
 		class?: string;
 	} = $props();
 
-	const id = $derived(`field-${name}`);
+	const id = $derived(idProp ?? `field-${name}`);
 	let text = $state(value == null ? '' : String(value));
 
 	// Resyncs the visible text when `value` changes from OUTSIDE this input (e.g. a parent programmatically

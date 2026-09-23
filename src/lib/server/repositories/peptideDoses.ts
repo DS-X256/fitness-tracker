@@ -2,6 +2,7 @@ import { db } from '$lib/server/db';
 import { peptideDoses } from '$lib/server/db/schema';
 import { and, asc, desc, eq, gte, isNotNull, lte } from 'drizzle-orm';
 import { decryptJson, encryptJson } from '$lib/server/crypto/fieldCrypto';
+import { assertDoseRefs } from './peptideRefs';
 import { isValidIsoDate } from '$lib/utils/isoDate';
 import {
 	isAdminRoute,
@@ -106,6 +107,7 @@ function sanitize(input: DoseInput): DoseEnc {
 export async function logDose(userId: number, input: DoseInput): Promise<Dose> {
 	if (!isValidIsoDate(input.date)) throw new Error('Invalid date');
 	const enc = sanitize(input);
+	await assertDoseRefs(userId, input);
 	const [row] = await db
 		.insert(peptideDoses)
 		.values({
@@ -127,6 +129,7 @@ export async function logDose(userId: number, input: DoseInput): Promise<Dose> {
 export async function updateDose(userId: number, id: number, input: DoseInput): Promise<Dose> {
 	if (!isValidIsoDate(input.date)) throw new Error('Invalid date');
 	const enc = sanitize(input);
+	await assertDoseRefs(userId, input);
 	const [row] = await db
 		.update(peptideDoses)
 		.set({
@@ -244,14 +247,20 @@ export async function mcgConsumedByVial(userId: number): Promise<Map<number, num
 /** The most recent (route, site) pairs, most-recent-first, to feed route-aware rotation suggestions
  *  (see suggestNextSite in $lib/utils/peptides.ts). */
 export async function recentSites(userId: number, limit = 20): Promise<{ route: AdminRoute | null; site: ApplicationSite | null }[]> {
+	// Scans a wider window than `limit` because only real doses count: a run of priming sprays or patch
+	// removals would otherwise crowd the actual site history out of the last-N rows.
 	const rows = await db
 		.select({ enc: peptideDoses.enc })
 		.from(peptideDoses)
 		.where(eq(peptideDoses.userId, userId))
 		.orderBy(desc(peptideDoses.date), desc(peptideDoses.createdAt))
-		.limit(limit);
-	return rows.map((r) => {
+		.limit(limit * 4);
+	const out: { route: AdminRoute | null; site: ApplicationSite | null }[] = [];
+	for (const r of rows) {
 		const enc = decryptJson<DoseEnc>(r.enc, aad(userId));
-		return { route: enc.route ?? null, site: enc.site ?? null };
-	});
+		if ((enc.kind ?? 'dose') !== 'dose') continue;
+		out.push({ route: enc.route ?? null, site: enc.site ?? null });
+		if (out.length >= limit) break;
+	}
+	return out;
 }

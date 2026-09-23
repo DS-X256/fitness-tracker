@@ -2,6 +2,7 @@ import { db } from '$lib/server/db';
 import { peptideProtocols } from '$lib/server/db/schema';
 import { and, asc, eq } from 'drizzle-orm';
 import { decryptJson, encryptJson } from '$lib/server/crypto/fieldCrypto';
+import { assertPeptideOwned } from './peptideRefs';
 import { isValidIsoDate } from '$lib/utils/isoDate';
 import { isAdminRoute, type AdminRoute } from '$lib/utils/peptides';
 import { isFrequency, taperStartDate, type Frequency, type LoadingPhase, type ProtocolSchedule, type TaperPhase } from '$lib/utils/peptideSchedule';
@@ -223,6 +224,7 @@ export async function getProtocol(userId: number, id: number): Promise<Protocol 
 
 export async function createProtocol(userId: number, input: ProtocolInput): Promise<Protocol> {
 	const { enc, startDate } = sanitize(input);
+	await assertPeptideOwned(userId, input.peptideId);
 	const now = new Date();
 	const [row] = await db
 		.insert(peptideProtocols)
@@ -240,9 +242,11 @@ export async function createProtocol(userId: number, input: ProtocolInput): Prom
 
 export async function updateProtocol(userId: number, id: number, input: ProtocolInput): Promise<void> {
 	const { enc, startDate } = sanitize(input);
+	await assertPeptideOwned(userId, input.peptideId);
 	await db
 		.update(peptideProtocols)
-		.set({ enc: encryptJson(enc, aad(userId)), startDate, updatedAt: new Date() })
+		// peptideId included: switching a protocol to a different compound used to be silently dropped.
+		.set({ peptideId: input.peptideId, enc: encryptJson(enc, aad(userId)), startDate, updatedAt: new Date() })
 		.where(and(eq(peptideProtocols.id, id), eq(peptideProtocols.userId, userId)));
 }
 

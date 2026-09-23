@@ -168,6 +168,7 @@ export const actions: Actions = {
 			expiresAt: str(form, 'expiresAt'),
 			notes: str(form, 'notes'),
 			concentrationMgMl: num(form, 'concentrationMgMl'),
+			percentWv: num(form, 'percentWv'),
 			actuationVolumeUl: num(form, 'actuationVolumeUl'),
 			primingActuations: num(form, 'primingActuations'),
 			unitCount: num(form, 'unitCount'),

@@ -20,12 +20,6 @@ import { todayIso } from '$lib/utils/todayIso';
 
 const MAX_TOOL_STEPS = 6;
 const MAX_TOKENS = 4096;
-/** Extra API calls purely to finish a reply that hit MAX_TOKENS mid-sentence — separate from
- *  MAX_TOOL_STEPS so a tool-heavy turn and a long-answer turn don't compete for the same budget.
- *  Each continuation resends `messages` with the previous (truncated) assistant turn still as the
- *  last entry, which the API treats as a prefill and continues generating from — no new user turn
- *  needed, so the streamed answer just keeps extending seamlessly. */
-const MAX_CONTINUATIONS = 2;
 
 /** The userId-scoped data tools plus the stateless external research tool(s), combined once here so
  *  tools.ts can stay scoped to its own doc comment ("thin wrappers over existing repositories, no new
@@ -102,7 +96,6 @@ export async function runAssistantTurn(
 	let answer = '';
 	let model = AI_MODEL_SONNET;
 	let toolSteps = 0;
-	let continuations = 0;
 	try {
 		for (;;) {
 			const stream = client.messages.stream({
@@ -145,14 +138,8 @@ export async function runAssistantTurn(
 				continue;
 			}
 
-			// Hit the length cap mid-reply rather than finishing naturally — resend `messages` as-is (it
-			// already ends with this truncated assistant turn) so the API continues it as a prefill,
-			// instead of silently handing back a sentence cut off in the middle.
-			if (response.stop_reason === 'max_tokens' && continuations < MAX_CONTINUATIONS) {
-				continuations++;
-				emit({ type: 'tool', label: 'Continuing a longer answer…' });
-				continue;
-			}
+			// No "continue from a prefill" retry here: current models reject an assistant-final message
+			// (400), which used to turn every long answer into a failed request. Say it was cut instead.
 			if (response.stop_reason === 'max_tokens') {
 				const note = '\n\n(That answer hit a length limit and was cut short — ask again, or ask a narrower question, for the rest.)';
 				answer += note;
