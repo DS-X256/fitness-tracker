@@ -23,6 +23,7 @@
 		formatDose,
 		formatHalfLife,
 		isValidBlendTotal,
+		presetComponents,
 		suggestBlendComponentMg,
 		suggestHalfLifeHours,
 		type BlendComponent,
@@ -80,7 +81,8 @@
 	function applyBlendPreset(preset: (typeof BLEND_PRESETS)[number]) {
 		pName = preset.name;
 		pCategory = preset.category;
-		pComponents = preset.components.map((c) => ({ ...c }));
+		pComponents = presetComponents(preset);
+		pVialMg = preset.vialMg;
 	}
 	function addComponent() {
 		if (pComponents.length >= MAX_BLEND_COMPONENTS) return;

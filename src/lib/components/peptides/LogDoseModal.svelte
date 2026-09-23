@@ -19,6 +19,7 @@
 		type AdminRoute,
 		type ApplicationSite,
 		type ContainerForm,
+		type DoseKind,
 		type MeasureUnit
 	} from '$lib/utils/peptides';
 
@@ -50,7 +51,7 @@
 		time: string | null;
 		measureCount: number | null;
 		measureUnit: MeasureUnit | null;
-		kind: 'dose' | 'prime' | 'remove';
+		kind: DoseKind;
 		notes: string | null;
 	};
 

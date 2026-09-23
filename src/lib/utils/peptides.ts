@@ -259,11 +259,76 @@ export function measureUnitForContainerForm(form: ContainerForm): MeasureUnit {
  *  'remove' marks taking a transdermal patch off — also not a dose. Both are excluded from adherence
  *  (see repositories/peptideDoses.ts). They differ in inventory terms: a prime still drew product from
  *  the container, so it counts toward consumption; a removal doesn't consume anything beyond what
- *  applying the patch already recorded, so it's excluded from consumption too (see mcgConsumedByVial). */
-export type DoseKind = 'dose' | 'prime' | 'remove';
+ *  applying the patch already recorded, so it's excluded from consumption too (see mcgConsumedByVial).
+ *  'skip' is a deliberate "not taking this one" marker against a scheduled slot: it consumes nothing and
+ *  isn't a dose, but adherence counts it as skipped rather than missed (see $lib/utils/peptideAdherence). */
+export type DoseKind = 'dose' | 'prime' | 'remove' | 'skip';
 
 export function isDoseKind(v: unknown): v is DoseKind {
-	return v === 'dose' || v === 'prime' || v === 'remove';
+	return v === 'dose' || v === 'prime' || v === 'remove' || v === 'skip';
+}
+
+/** --- Side-effect check-ins -----------------------------------------------------------------------------
+ *  Quick, structured "how did it go" tags attached to a logged dose — a fixed list (not free text) so
+ *  they can be counted and compared across doses, with a 1-3 severity. Free-form detail still goes in the
+ *  dose's notes. `tone` only drives chip colouring; it isn't a judgement the app makes about the effect. */
+export type EffectTag =
+	| 'nausea'
+	| 'site_reaction'
+	| 'headache'
+	| 'fatigue'
+	| 'poor_sleep'
+	| 'better_sleep'
+	| 'energy_up'
+	| 'appetite_down'
+	| 'water_retention'
+	| 'tingling'
+	| 'flushing'
+	| 'gi_upset'
+	| 'other';
+
+export const EFFECT_TAGS: { value: EffectTag; label: string; tone: 'bad' | 'good' | 'neutral' }[] = [
+	{ value: 'nausea', label: 'Nausea', tone: 'bad' },
+	{ value: 'site_reaction', label: 'Site reaction', tone: 'bad' },
+	{ value: 'headache', label: 'Headache', tone: 'bad' },
+	{ value: 'fatigue', label: 'Fatigue', tone: 'bad' },
+	{ value: 'poor_sleep', label: 'Poor sleep', tone: 'bad' },
+	{ value: 'better_sleep', label: 'Better sleep', tone: 'good' },
+	{ value: 'energy_up', label: 'More energy', tone: 'good' },
+	{ value: 'appetite_down', label: 'Less appetite', tone: 'neutral' },
+	{ value: 'water_retention', label: 'Water retention', tone: 'bad' },
+	{ value: 'tingling', label: 'Tingling / numbness', tone: 'bad' },
+	{ value: 'flushing', label: 'Flushing', tone: 'neutral' },
+	{ value: 'gi_upset', label: 'GI upset', tone: 'bad' },
+	{ value: 'other', label: 'Other', tone: 'neutral' }
+];
+
+export type EffectSeverity = 1 | 2 | 3;
+export type DoseEffect = { tag: EffectTag; severity: EffectSeverity };
+
+export const SEVERITY_LABELS: Record<EffectSeverity, string> = { 1: 'Mild', 2: 'Moderate', 3: 'Strong' };
+
+export function isEffectTag(v: unknown): v is EffectTag {
+	return typeof v === 'string' && EFFECT_TAGS.some((t) => t.value === v);
+}
+
+export function effectLabel(tag: EffectTag): string {
+	return EFFECT_TAGS.find((t) => t.value === tag)?.label ?? tag;
+}
+
+/** Keeps only known tags with a 1-3 severity, one entry per tag (last one wins). Tolerant of junk input
+ *  (anything unparseable is dropped rather than failing the whole dose write). */
+export function sanitizeEffects(input: unknown): DoseEffect[] {
+	if (!Array.isArray(input)) return [];
+	const byTag = new Map<EffectTag, EffectSeverity>();
+	for (const raw of input) {
+		if (!raw || typeof raw !== 'object') continue;
+		const tag = (raw as { tag?: unknown }).tag;
+		const sev = Number((raw as { severity?: unknown }).severity);
+		if (!isEffectTag(tag)) continue;
+		byTag.set(tag, (sev === 1 || sev === 2 || sev === 3 ? sev : 1) as EffectSeverity);
+	}
+	return [...byTag].map(([tag, severity]) => ({ tag, severity }));
 }
 
 /** Display a canonical mcg dose as mcg under 1000, otherwise mg. */
@@ -287,90 +352,180 @@ function round(n: number, dp: number): number {
 
 /** --- Blends ------------------------------------------------------------------------------------------
  *  A blend is a peptide compound that's really several compounds combined into one container (e.g. a
- *  "KLOW" vial). Each component's `percent` is its share of the blend's TOTAL mg — not an absolute mg
- *  amount — so the same recipe scales to whatever size vial the user actually bought. Percentages are
- *  reference defaults sourced from commonly-cited compounding ratios, not a dosing recommendation; every
- *  field is free-text/editable in the UI, matching this app's "no dosing guidance" stance elsewhere. */
-export type BlendComponent = { name: string; percent: number };
+ *  "KLOW" vial). Each component carries its share of the blend's total mg — either as an absolute label
+ *  amount (`labelMg`, what the vial's label says: "GHK-Cu 50 mg, BPC-157 10 mg, …") or as a `percent` —
+ *  and blendShares() below turns whichever was entered into normalized fractions, so the same recipe
+ *  scales to whatever size vial the user actually bought. `peptideId` links a component to its own
+ *  compound row, which is what lets a logged "4 mg KLOW" show up as GHK-Cu/BPC-157/… intake everywhere
+ *  (history, levels, the AI). Presets are commonly-sold compositions, not a dosing recommendation; every
+ *  field stays editable, matching this app's "no dosing guidance" stance elsewhere. */
+export type BlendComponent = {
+	name: string;
+	/** Share of the blend's total mg, 0-100. Always stored (derived from labelMg when that was entered). */
+	percent: number;
+	/** The compound row this component is tracked as. Null only for rows saved before linking existed. */
+	peptideId?: number | null;
+	/** mg of this component per vial as printed on the label, when entered that way (else null). */
+	labelMg?: number | null;
+};
+
+/** One component's share of one logged dose — the "4 mg KLOW = 2.5 mg GHK-Cu + …" split. */
+export type BlendPortion = { peptideId: number | null; name: string; mcg: number };
 
 export const MAX_BLEND_COMPONENTS = 8;
 
-/** Starter recipes offered when the user marks a compound as a blend — one tap prefills name + component
- *  ratios, which they can then rename/re-weight/add/remove before saving. Not auto-seeded like
- *  PRESET_PEPTIDES; blends are a more specialized, opt-in catalog addition. */
-export const BLEND_PRESETS: { name: string; category: PeptideCategory; components: BlendComponent[] }[] = [
+export type BlendPreset = {
+	name: string;
+	category: PeptideCategory;
+	/** The usual total vial size, mg — also becomes the compound's reference vialMg. */
+	vialMg: number;
+	components: { name: string; labelMg: number }[];
+};
+
+/** Starter recipes offered when the user marks a compound as a blend — one tap prefills name + label
+ *  amounts, which they can then edit before saving. Compositions are the ones these blends are most
+ *  commonly sold as (e.g. KLOW 80 mg = GHK-Cu 50 + BPC-157 10 + TB-500 10 + KPV 10); vendors vary, so the
+ *  UI says so and keeps every row editable. Not auto-seeded like PRESET_PEPTIDES. */
+export const BLEND_PRESETS: BlendPreset[] = [
 	{
 		name: 'KLOW',
 		category: 'healing',
+		vialMg: 80,
 		components: [
-			{ name: 'GHK-Cu', percent: 71.43 },
-			{ name: 'KPV', percent: 14.29 },
-			{ name: 'BPC-157', percent: 7.14 },
-			{ name: 'TB-500', percent: 7.14 }
+			{ name: 'GHK-Cu', labelMg: 50 },
+			{ name: 'BPC-157', labelMg: 10 },
+			{ name: 'TB-500', labelMg: 10 },
+			{ name: 'KPV', labelMg: 10 }
 		]
 	},
 	{
 		name: 'GLOW',
 		category: 'healing',
+		vialMg: 70,
 		components: [
-			{ name: 'GHK-Cu', percent: 83.33 },
-			{ name: 'BPC-157', percent: 8.33 },
-			{ name: 'TB-500', percent: 8.33 }
+			{ name: 'GHK-Cu', labelMg: 50 },
+			{ name: 'BPC-157', labelMg: 10 },
+			{ name: 'TB-500', labelMg: 10 }
 		]
 	},
 	{
 		name: 'BPC-157 / TB-500',
 		category: 'healing',
+		vialMg: 10,
 		components: [
-			{ name: 'BPC-157', percent: 50 },
-			{ name: 'TB-500', percent: 50 }
+			{ name: 'BPC-157', labelMg: 5 },
+			{ name: 'TB-500', labelMg: 5 }
 		]
 	},
 	{
 		name: 'CJC-1295 / Ipamorelin',
 		category: 'gh_secretagogue',
+		vialMg: 10,
 		components: [
-			{ name: 'CJC-1295', percent: 50 },
-			{ name: 'Ipamorelin', percent: 50 }
+			{ name: 'CJC-1295', labelMg: 5 },
+			{ name: 'Ipamorelin', labelMg: 5 }
 		]
 	},
 	{
 		name: 'Semaglutide / Cagrilintide',
 		category: 'glp1',
+		vialMg: 10,
 		components: [
-			{ name: 'Semaglutide', percent: 50 },
-			{ name: 'Cagrilintide', percent: 50 }
+			{ name: 'Semaglutide', labelMg: 5 },
+			{ name: 'Cagrilintide', labelMg: 5 }
 		]
 	}
 ];
+
+/** A preset as editable component rows (percent derived from the label amounts). */
+export function presetComponents(preset: BlendPreset): BlendComponent[] {
+	const total = preset.components.reduce((sum, c) => sum + c.labelMg, 0);
+	return preset.components.map((c) => ({
+		name: c.name,
+		labelMg: c.labelMg,
+		percent: total > 0 ? round((c.labelMg / total) * 100, 2) : 0,
+		peptideId: null
+	}));
+}
+
+/** Case/spacing/punctuation-insensitive key for matching a component name to a compound row, so
+ *  "BPC 157", "bpc-157" and "BPC157" all find the same compound. */
+export function normalizeCompoundName(name: string): string {
+	return name.toLowerCase().replace(/[\s\-_.]+/g, '');
+}
+
+/** True when every component has a positive label amount — the blend was entered as label mg. */
+export function usesLabelMg(components: BlendComponent[]): boolean {
+	return components.length > 0 && components.every((c) => c.labelMg != null && Number.isFinite(c.labelMg) && c.labelMg > 0);
+}
+
+/** Each component's fraction of the blend (summing to exactly 1), from label mg when every row has one,
+ *  otherwise from percent. Normalizing by the actual sum means a ratio that rounds to 99.99% still splits
+ *  a dose completely rather than silently losing a sliver of it. All zeros when nothing usable is set. */
+export function blendShares(components: BlendComponent[]): number[] {
+	const weights = usesLabelMg(components)
+		? components.map((c) => c.labelMg as number)
+		: components.map((c) => (Number.isFinite(c.percent) && c.percent > 0 ? c.percent : 0));
+	const total = weights.reduce((a, b) => a + b, 0);
+	return total > 0 ? weights.map((w) => w / total) : weights.map(() => 0);
+}
+
+/** The core blend feature: a logged dose of the whole blend, split into each component's micrograms.
+ *  Works in whole nanograms with largest-remainder rounding, so the parts always add back up to exactly
+ *  the logged dose — 4000 mcg of KLOW is 2500 + 500 + 500 + 500, never 2499.999 + … */
+export function splitBlendDose(doseMcg: number, components: BlendComponent[]): BlendPortion[] {
+	const shares = blendShares(components);
+	const totalNg = Math.round(Math.max(0, doseMcg) * 1000);
+	const raw = shares.map((sh) => sh * totalNg);
+	const floors = raw.map(Math.floor);
+	let remainder = totalNg - floors.reduce((a, b) => a + b, 0);
+	const order = raw.map((r, i) => ({ i, frac: r - Math.floor(r) })).sort((a, b) => b.frac - a.frac);
+	for (const { i } of order) {
+		if (remainder <= 0) break;
+		if (shares[i] <= 0) continue;
+		floors[i]++;
+		remainder--;
+	}
+	return components.map((c, i) => ({ peptideId: c.peptideId ?? null, name: c.name, mcg: floors[i] / 1000 }));
+}
 
 /** Sum of a component list's percentages, rounded for display/validation (float-safe). */
 export function blendPercentTotal(components: BlendComponent[]): number {
 	return round(components.reduce((sum, c) => sum + (Number.isFinite(c.percent) ? c.percent : 0), 0), 2);
 }
 
-/** True when a blend's components add up close enough to 100% to accept (small float slack). */
+/** True when a blend's components add up close enough to 100% to accept (small float slack). A blend
+ *  entered as label mg is always valid — its percentages are derived, not typed. */
 export function isValidBlendTotal(components: BlendComponent[]): boolean {
+	if (usesLabelMg(components)) return true;
 	const total = blendPercentTotal(components);
 	return total >= 99.5 && total <= 100.5;
 }
 
-/** The smart suggestion: given a blend's standard ratio and the actual total mg of a specific vial the
- *  user owns, estimate how many mg of each component that vial contains. Returns null mg (rather than 0)
- *  when the total isn't known yet, so callers can render "—" instead of a misleading zero. */
+/** Given a blend's ratio and the actual total mg of a specific vial, estimate how many mg of each
+ *  component that vial contains. Null mg (rather than 0) when the total isn't known yet, so callers can
+ *  render "—" instead of a misleading zero. */
 export function suggestBlendComponentMg(
 	totalMg: number | null | undefined,
 	components: BlendComponent[]
 ): { name: string; mg: number | null }[] {
-	return components.map((c) => ({
+	const shares = blendShares(components);
+	return components.map((c, i) => ({
 		name: c.name,
-		mg: totalMg != null && Number.isFinite(totalMg) ? round((totalMg * c.percent) / 100, 2) : null
+		mg: totalMg != null && Number.isFinite(totalMg) ? round(totalMg * shares[i], 2) : null
 	}));
 }
 
-/** Compact "GHK-Cu 71% · KPV 14% · ..." label for list rows, independent of any specific vial size. */
+/** Compact "GHK-Cu 50 mg · KPV 10 mg · …" (or "GHK-Cu 62.5% · …") label for list rows. */
 export function blendRatioSummary(components: BlendComponent[]): string {
-	return components.map((c) => `${c.name} ${round(c.percent, 1)}%`).join(' · ');
+	if (usesLabelMg(components)) return components.map((c) => `${c.name} ${round(c.labelMg as number, 2)} mg`).join(' · ');
+	const shares = blendShares(components);
+	return components.map((c, i) => `${c.name} ${round(shares[i] * 100, 1)}%`).join(' · ');
+}
+
+/** "GHK-Cu 2.5 mg · BPC-157 500 mcg · …" for a split dose. */
+export function blendPortionSummary(portions: BlendPortion[]): string {
+	return portions.map((p) => `${p.name} ${formatDose(p.mcg)}`).join(' · ');
 }
 
 /** --- Active-in-body estimate ---------------------------------------------------------------------
