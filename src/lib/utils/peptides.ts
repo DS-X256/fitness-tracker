@@ -354,7 +354,8 @@ export function sanitizeEffects(input: unknown): DoseEffect[] {
 /** Display a canonical mcg dose as mcg under 1000, otherwise mg. */
 export function formatDose(mcg: number | null | undefined): string {
 	if (mcg == null || !Number.isFinite(mcg)) return '—';
-	if (mcg < 1000) return `${round(mcg, 0)} mcg`;
+	// Sub-10 mcg amounts (small blend portions) keep a decimal rather than rounding to a misleading "0 mcg".
+	if (mcg < 1000) return `${round(mcg, mcg < 10 ? 1 : 0)} mcg`;
 	return `${round(mcg / 1000, 3)} mg`;
 }
 

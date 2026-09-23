@@ -15,7 +15,15 @@
 	import { ADMIN_ROUTES, formatDose, splitBlendDose, type AdminRoute, type BlendComponent } from '$lib/utils/peptides';
 	import { FREQUENCY_LABELS, type Frequency } from '$lib/utils/peptideSchedule';
 
-	type CompoundOpt = { id: number; name: string; active: boolean; isBlend: boolean; components: BlendComponent[] | null; vialMg: number | null };
+	type CompoundOpt = {
+		id: number;
+		name: string;
+		category: string | null;
+		active: boolean;
+		isBlend: boolean;
+		components: BlendComponent[] | null;
+		vialMg: number | null;
+	};
 	type Protocol = {
 		id: number;
 		peptideId: number;
@@ -118,6 +126,7 @@
 	}
 
 	const compound = $derived(compounds.find((c) => c.id === peptideId) ?? null);
+	const preferMg = $derived(!!compound && (compound.isBlend || compound.category === 'glp1'));
 
 	function resetMix(from: BlendComponent[] | null) {
 		mixInitial = from && from.length > 0 ? from : (compound?.components ?? []);
@@ -164,7 +173,7 @@
 			</select>
 		</div>
 		<div class="grid grid-cols-2 gap-3">
-			<DoseAmountInput label="Dose" name="doseMcg" id="pr-dose" bind:value={dose} />
+			<DoseAmountInput label="Dose" name="doseMcg" id="pr-dose" bind:value={dose} {preferMg} />
 			<div>
 				<label for="pr-route" class="block text-sm font-medium text-[var(--color-text)] mb-1.5">Route</label>
 				<select id="pr-route" name="route" bind:value={route} class={inputClass}>
@@ -255,7 +264,7 @@
 					A different dose for the first stretch of the protocol, on the same schedule, before it drops to the dose above.
 				</p>
 				<div class="grid grid-cols-2 gap-3">
-					<DoseAmountInput label="Loading dose" name="loadingDoseMcg" id="pr-load-dose" bind:value={loadDose} />
+					<DoseAmountInput label="Loading dose" name="loadingDoseMcg" id="pr-load-dose" bind:value={loadDose} {preferMg} />
 					<NumberField label="For" name="loadingDurationDays" bind:value={loadDays} suffix="days" />
 				</div>
 			{:else}
@@ -289,7 +298,7 @@
 							indefinitely.
 						</p>
 						<div class="grid grid-cols-2 gap-3">
-							<DoseAmountInput label="Taper dose" name="taperDoseMcg" id="pr-taper-dose" bind:value={taperDose} />
+							<DoseAmountInput label="Taper dose" name="taperDoseMcg" id="pr-taper-dose" bind:value={taperDose} {preferMg} />
 							<NumberField label="Starts after" name="taperAfterDays" bind:value={taperAfter} suffix="days" />
 						</div>
 					{:else}

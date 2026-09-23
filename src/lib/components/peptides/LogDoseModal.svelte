@@ -34,7 +34,14 @@
 		type MeasureUnit
 	} from '$lib/utils/peptides';
 
-	type CompoundOpt = { id: number; name: string; active: boolean; isBlend: boolean; components: BlendComponent[] | null };
+	type CompoundOpt = {
+		id: number;
+		name: string;
+		category: string | null;
+		active: boolean;
+		isBlend: boolean;
+		components: BlendComponent[] | null;
+	};
 	type ProtocolOpt = {
 		id: number;
 		peptideId: number;
@@ -365,7 +372,7 @@
 						<input type="hidden" name="doseMcg" value={computedDoseMcg ?? ''} />
 					</div>
 				{:else}
-					<DoseAmountInput bind:value={doseMcg} />
+					<DoseAmountInput bind:value={doseMcg} preferMg={!!compound && (compound.isBlend || compound.category === 'glp1')} />
 				{/if}
 				<div>
 					<label for="dose-route" class="block text-sm font-medium text-[var(--color-text)] mb-1.5">Route</label>

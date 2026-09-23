@@ -2,15 +2,17 @@
 	// Dose entry in mg OR mcg — GLP-1s and blends are thought of in mg ("2.5 mg tirz", "4 mg KLOW"), most
 	// healing peptides in mcg ("250 mcg BPC") — while the form always posts canonical mcg (hidden input),
 	// which is what every repository stores. When the value is set from outside (a protocol prefill), the
-	// unit follows the amount (≥ 1 mg shows as mg); after that the user's own toggle choice sticks.
+	// unit follows the amount (≥ 1 mg shows as mg); an empty field starts in `preferMg`'s unit (so typing
+	// "2" for a KLOW protocol means 2 mg, not 2 mcg); the user's own toggle choice always wins after that.
 	import { parseDecimal } from '$lib/utils/parseDecimal';
 
 	let {
 		value = $bindable<number | null>(null),
 		label = 'Dose',
 		name = 'doseMcg',
-		id = 'dose-amount'
-	}: { value?: number | null; label?: string; name?: string; id?: string } = $props();
+		id = 'dose-amount',
+		preferMg = false
+	}: { value?: number | null; label?: string; name?: string; id?: string; preferMg?: boolean } = $props();
 
 	let unit = $state<'mcg' | 'mg'>('mcg');
 	let text = $state('');
@@ -30,9 +32,15 @@
 	// current text always equals the value the input handler just wrote.
 	$effect(() => {
 		const v = value;
-		if (v === parsedMcg()) return;
+		const emptyUnit = preferMg ? 'mg' : 'mcg';
+		if (v === parsedMcg()) {
+			// Still empty (e.g. switched to a compound with no protocol): start in that compound's usual unit.
+			if (v == null && text.trim() === '') unit = emptyUnit;
+			return;
+		}
 		if (v == null) {
 			text = '';
+			unit = emptyUnit;
 			return;
 		}
 		unit = v >= 1000 ? 'mg' : 'mcg';

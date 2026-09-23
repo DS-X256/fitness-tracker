@@ -195,6 +195,7 @@ export function logModalData(ctx: PeptideContext) {
 		compounds: ctx.peptides.map((p) => ({
 			id: p.id,
 			name: p.name,
+			category: p.category,
 			active: p.active,
 			isBlend: p.isBlend,
 			components: p.components
