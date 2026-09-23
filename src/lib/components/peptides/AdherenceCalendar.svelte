@@ -1,9 +1,11 @@
 <script lang="ts">
-	// A GitHub-style contribution grid for dose adherence. `days` is ascending (oldest first); each cell
-	// is colored by whether a dose was due and whether one was logged. Hand-rolled to match the app's
-	// no-charting-library convention (see ProgressChart).
+	// A GitHub-style contribution grid for dose adherence. `days` is ascending (oldest first); each cell is
+	// coloured by that day's status from the shared adherence engine (peptideAdherence.calendarDays):
+	// taken / partial / skipped / missed / due-today / unscheduled dose / rest. Hand-rolled to match the
+	// app's no-charting-library convention (see ProgressChart).
+	import type { DayStatus } from '$lib/utils/peptideAdherence';
 
-	type Day = { date: string; count: number; due: boolean };
+	type Day = { date: string; count: number; status: DayStatus };
 	let { days, today }: { days: Day[]; today: string } = $props();
 
 	function weekday(iso: string): number {
@@ -21,23 +23,42 @@
 		return cols;
 	});
 
+	const FILL: Record<DayStatus, string> = {
+		taken: 'bg-[var(--color-accent)]',
+		extra: 'bg-[var(--color-accent)] opacity-60',
+		partial: 'bg-[var(--color-accent)] opacity-40',
+		skipped: 'bg-[var(--color-text-muted)] opacity-40',
+		missed: 'bg-[var(--color-danger-soft)]',
+		pending: 'bg-[var(--color-accent-soft)]',
+		rest: 'bg-[var(--color-surface-alt)]'
+	};
+
 	function cellClass(day: Day | null): string {
 		if (!day) return 'bg-transparent';
-		const isToday = day.date === today;
-		const ring = isToday ? ' ring-2 ring-[var(--color-accent)] ring-offset-1 ring-offset-[var(--color-surface)]' : '';
-		if (day.count > 0) return `bg-[var(--color-accent)]${ring}`;
-		if (day.due && day.date < today) return `bg-[var(--color-danger-soft)]${ring}`; // missed
-		if (day.due) return `bg-[var(--color-accent-soft)]${ring}`; // due, not yet logged (today/future)
-		return `bg-[var(--color-surface-alt)]${ring}`;
+		const ring = day.date === today ? ' ring-2 ring-[var(--color-accent)] ring-offset-1 ring-offset-[var(--color-surface)]' : '';
+		return `${FILL[day.status]}${ring}`;
 	}
 
 	function label(day: Day | null): string {
 		if (!day) return '';
 		const when = new Date(`${day.date}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-		if (day.count > 0) return `${when}: ${day.count} dose${day.count > 1 ? 's' : ''} logged`;
-		if (day.due && day.date < today) return `${when}: dose due, none logged`;
-		if (day.due) return `${when}: dose due`;
-		return `${when}: nothing scheduled`;
+		const doses = day.count > 0 ? ` (${day.count} dose${day.count > 1 ? 's' : ''})` : '';
+		switch (day.status) {
+			case 'taken':
+				return `${when}: all scheduled doses taken${doses}`;
+			case 'partial':
+				return `${when}: some scheduled doses missing${doses}`;
+			case 'skipped':
+				return `${when}: skipped${doses}`;
+			case 'missed':
+				return `${when}: scheduled dose missed`;
+			case 'pending':
+				return `${when}: dose due`;
+			case 'extra':
+				return `${when}: dose logged on an unscheduled day${doses}`;
+			default:
+				return `${when}: nothing scheduled`;
+		}
 	}
 </script>
 
@@ -54,8 +75,9 @@
 </div>
 
 <div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-[var(--color-text-muted)]">
-	<span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded-[3px] bg-[var(--color-accent)]"></span> Logged</span>
-	<span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded-[3px] bg-[var(--color-danger-soft)]"></span> Missed</span>
-	<span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded-[3px] bg-[var(--color-accent-soft)]"></span> Due</span>
-	<span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded-[3px] bg-[var(--color-surface-alt)]"></span> Rest day</span>
+	<span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded-[3px] {FILL.taken}"></span> Taken</span>
+	<span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded-[3px] {FILL.partial}"></span> Partial</span>
+	<span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded-[3px] {FILL.skipped}"></span> Skipped</span>
+	<span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded-[3px] {FILL.missed}"></span> Missed</span>
+	<span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded-[3px] {FILL.pending}"></span> Due</span>
 </div>

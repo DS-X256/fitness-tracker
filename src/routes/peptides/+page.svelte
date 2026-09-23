@@ -5,17 +5,21 @@
 	import Card from '$lib/components/Card.svelte';
 	import Button from '$lib/components/Button.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import StatCard from '$lib/components/StatCard.svelte';
 	import AdherenceCalendar from '$lib/components/peptides/AdherenceCalendar.svelte';
 	import LogDoseModal from '$lib/components/peptides/LogDoseModal.svelte';
+	import DueTodayCard from '$lib/components/peptides/DueTodayCard.svelte';
+	import DoseHistoryList from '$lib/components/peptides/DoseHistoryList.svelte';
+	import SupplyAlerts from '$lib/components/peptides/SupplyAlerts.svelte';
 	import AiInsightCard from '$lib/components/ai/AiInsightCard.svelte';
-	import { formatDose, formatHalfLife, formatLevel, siteLabel, MEASURE_UNIT_LABELS } from '$lib/utils/peptides';
+	import { formatHalfLife, formatLevel, ROUTE_LABELS } from '$lib/utils/peptides';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+
+	type Ready = Extract<PageData, { encryptionReady: true }>;
 	let logOpen = $state(false);
-	let logInitial = $state<{ peptideId?: number; doseMcg?: number | null; protocolId?: number | null } | null>(null);
-	let editingDose = $state<NonNullable<PageData['recent']>[number] | null>(null);
+	let logInitial = $state<{ peptideId?: number; protocolId?: number | null; doseMcg?: number | null } | null>(null);
+	let editingDose = $state<Ready['recent'][number] | null>(null);
 
 	function openLog(initial: typeof logInitial = null) {
 		logInitial = initial;
@@ -23,7 +27,7 @@
 		logOpen = true;
 	}
 
-	function openEdit(dose: NonNullable<PageData['recent']>[number]) {
+	function openEdit(dose: Ready['recent'][number]) {
 		editingDose = dose;
 		logInitial = null;
 		logOpen = true;
@@ -78,50 +82,24 @@
 		<div class="flex items-start gap-2.5 rounded-[var(--radius-md)] bg-[var(--color-surface-alt)] px-3.5 py-2.5">
 			<div class="mt-0.5 shrink-0 text-[var(--color-text-muted)]"><Icon name="alert" size={16} /></div>
 			<p class="text-xs leading-relaxed text-[var(--color-text-muted)]">
-				A personal log for a regimen you already follow — not medical advice, and no dosing is suggested for you.
-				Doses and schedules are the ones you enter. Discuss any protocol with a qualified clinician.
+				A personal log for a regimen you already follow — not medical advice. Doses and schedules are the ones you
+				enter. Discuss any protocol with a qualified clinician.
 			</p>
 		</div>
 
-		<!-- Due today -->
-		{#if data.due.length > 0}
-			<div>
-				<h2 class="section-label mb-2 px-1">Due today · {fmtDate(data.today)}</h2>
-				<Card padded={false} class="divide-y divide-[var(--color-border)]">
-					{#each data.due as d (d.protocolId)}
-						<div class="flex items-center gap-3 px-4 py-3">
-							<div class="flex-1 min-w-0">
-								<p class="text-sm font-medium text-[var(--color-text)] truncate">
-									{d.peptideName}
-									{#if d.loading}<span class="ml-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-accent)] align-middle">Loading</span>{/if}
-									{#if d.tapering}<span class="ml-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-accent)] align-middle">Tapering</span>{/if}
-								</p>
-								<p class="text-xs text-[var(--color-text-muted)] tabular-nums">
-									{formatDose(d.doseMcg)}{#if d.timeOfDay} · {d.timeOfDay}{/if}
-								</p>
-							</div>
-							{#if d.logged}
-								<span class="flex items-center gap-1 text-xs font-medium text-[var(--color-success)]">
-									<Icon name="check" size={16} /> Logged
-								</span>
-							{:else}
-								<form method="POST" action="?/quickLog" use:enhance>
-									<input type="hidden" name="protocolId" value={d.protocolId} />
-									<button
-										type="submit"
-										class="h-9 px-3 rounded-[var(--radius-md)] bg-[var(--color-accent)] text-[var(--color-on-accent)] text-sm font-medium active:scale-[0.98]"
-									>
-										Log
-									</button>
-								</form>
-							{/if}
-						</div>
-					{/each}
-				</Card>
-			</div>
-		{/if}
+		<DueTodayCard
+			rows={data.due}
+			title={`Due today · ${fmtDate(data.today)}`}
+			onAdjust={(row) => openLog({ peptideId: row.peptideId, protocolId: row.protocolId })}
+		/>
 
-		<!-- Active in body — a rough decay estimate for long-acting compounds (see activeAmountMcg). -->
+		<Button variant="primary" size="lg" full class="w-full" onclick={() => openLog()}>
+			<Icon name="plus" size={20} /> Log a dose
+		</Button>
+
+		<SupplyAlerts rows={data.supply} />
+
+		<!-- Active in body — a rough decay estimate for compounds with a half-life, blends included. -->
 		{#if data.activeLevels.length > 0}
 			<div>
 				<div class="flex items-center justify-between mb-2 px-1">
@@ -131,39 +109,37 @@
 					</a>
 				</div>
 				<Card padded={false} class="divide-y divide-[var(--color-border)]">
-					{#each data.activeLevels as a (a.peptideId)}
-						<div class="flex items-center gap-3 px-4 py-3">
+					{#each data.activeLevels as a (`${a.peptideId}|${a.route}`)}
+						<a href={`/peptides/${a.peptideId}`} class="flex items-center gap-3 px-4 py-3">
 							<div class="flex-1 min-w-0">
-								<p class="text-sm font-medium text-[var(--color-text)] truncate">{a.peptideName}</p>
+								<p class="text-sm font-medium text-[var(--color-text)] truncate">
+									{a.peptideName}{#if a.route}<span class="text-[var(--color-text-muted)] font-normal"> · {ROUTE_LABELS[a.route]}</span>{/if}
+								</p>
 								<p class="text-xs text-[var(--color-text-muted)] tabular-nums">
-									~{formatHalfLife(a.halfLifeHours)} half-life{#if a.lastDoseDate}{' · '}last dose {fmtDate(a.lastDoseDate)}{/if}
+									~{formatHalfLife(a.halfLifeHours)} half-life{#if a.lastDoseDate}{' · '}last {fmtDate(a.lastDoseDate)}{/if}{#if a.viaBlend}{' · '}incl. blends{/if}
 								</p>
 							</div>
 							<span class="text-sm font-semibold text-[var(--color-text)] tabular-nums">{formatLevel(a.activeMcg)}</span>
-						</div>
+						</a>
 					{/each}
 				</Card>
 				<p class="mt-1.5 px-1 text-xs text-[var(--color-text-muted)]">
-					A rough estimate from your logged doses and each compound's reference half-life — not a real
-					PK model, and not dosing guidance.
+					A rough estimate from your logged doses and each compound's reference half-life — not a real PK model, and
+					not dosing guidance.
 				</p>
 			</div>
 		{/if}
 
-		<Button variant="primary" size="lg" full class="w-full" onclick={() => openLog()}>
-			<Icon name="plus" size={20} /> Log a dose
-		</Button>
-
 		<!-- Adherence + calendar -->
-		{#if data.adherence}
+		{#if data.adherence.totals.scheduled > 0}
 			<Card>
 				<div class="flex items-center justify-between mb-3">
-					<h2 class="section-label">Adherence · 30 days</h2>
-					<span class="text-sm font-semibold text-[var(--color-text)] tabular-nums">{data.adherence.pct}%</span>
+					<h2 class="section-label">Adherence · {data.adherence.windowDays} days</h2>
+					<span class="text-sm font-semibold text-[var(--color-text)] tabular-nums">{data.adherence.pct != null ? `${data.adherence.pct}%` : '—'}</span>
 				</div>
-				<AdherenceCalendar days={data.calendar} today={data.today} />
+				<AdherenceCalendar days={data.adherence.calendar} today={data.today} />
 				<p class="mt-3 text-xs text-[var(--color-text-muted)] tabular-nums">
-					{data.adherence.taken} of {data.adherence.total} scheduled doses logged
+					{data.adherence.totals.taken} taken · {data.adherence.totals.missed} missed{#if data.adherence.totals.skipped} · {data.adherence.totals.skipped} skipped{/if}{#if data.adherence.totals.pending} · {data.adherence.totals.pending} still due{/if}
 				</p>
 			</Card>
 		{/if}
@@ -171,8 +147,8 @@
 		<!-- AI adherence insights — opt-in, off by default; see the toggle's own disclosure text. -->
 		<AiInsightCard
 			title="AI insights"
-			disclosure="Sends your protocol adherence, inventory, and dose-timing numbers to Claude to generate this summary — never free-text notes."
-			action="?/generatePeptideInsight"
+			disclosure="Sends your protocol adherence, what you took (blends split into components), supply and upcoming changes to Claude to generate this recap — never free-text notes or side effects."
+			action="/peptides?/generatePeptideInsight"
 			insight={data.peptideInsight}
 			aiAvailable={data.aiAvailable}
 			buttonLabel="Generate insight"
@@ -181,70 +157,16 @@
 			extra={aiToggle}
 		/>
 
-		<!-- Vial alerts -->
-		{#if data.vialAlerts.some((v) => v.expiry || v.low)}
-			<div>
-				<h2 class="section-label mb-2 px-1">Vials needing attention</h2>
-				<Card padded={false} class="divide-y divide-[var(--color-border)]">
-					{#each data.vialAlerts.filter((v) => v.expiry || v.low) as v (v.id)}
-						<div class="flex items-center gap-3 px-4 py-3">
-							<div class="mt-0.5 shrink-0 text-[var(--color-danger)]"><Icon name="alert" size={18} /></div>
-							<div class="flex-1 min-w-0 text-sm">
-								<p class="text-[var(--color-text)] truncate">{v.peptideName}{#if v.vialMg} · {v.vialMg} mg{/if}</p>
-								<p class="text-xs text-[var(--color-text-muted)]">
-									{#if v.expiry === 'expired'}Expired {v.expiresAt}{:else if v.expiry === 'soon'}Expires {v.expiresAt}{/if}
-									{#if (v.expiry) && v.low} · {/if}
-									{#if v.low}~{v.dosesLeft} {MEASURE_UNIT_LABELS[v.unit]} left{#if v.daysLeft != null} · ~{v.daysLeft}d supply{/if}{/if}
-								</p>
-							</div>
-						</div>
-					{/each}
-				</Card>
-			</div>
-		{/if}
-
 		<!-- Recent history -->
 		{#if data.recent.length > 0}
 			<div>
 				<h2 class="section-label mb-2 px-1">Recent doses</h2>
-				<Card padded={false} class="divide-y divide-[var(--color-border)]">
-					{#each data.recent as dose (dose.id)}
-						<div class="flex items-center gap-2 px-4 py-2.5">
-							<div class="flex-1 min-w-0">
-								<p class="text-sm text-[var(--color-text)] truncate">
-									{dose.peptideName}
-									<span class="text-[var(--color-text-muted)] tabular-nums"> · {formatDose(dose.doseMcg)}</span>
-								</p>
-								<p class="text-xs text-[var(--color-text-muted)] tabular-nums">
-									{fmtDate(dose.date)}{#if dose.site} · {siteLabel(dose.site)}{/if}{#if dose.kind !== 'dose'} · {dose.kind === 'prime' ? 'Prime' : 'Removed'}{/if}
-								</p>
-							</div>
-							<button
-								type="button"
-								aria-label="Edit dose"
-								onclick={() => openEdit(dose)}
-								class="h-8 w-8 flex items-center justify-center rounded-full text-[var(--color-text-muted)] hover:bg-[var(--color-surface-alt)]"
-							>
-								<Icon name="edit" size={15} />
-							</button>
-							<form method="POST" action="?/deleteDose" use:enhance>
-								<input type="hidden" name="id" value={dose.id} />
-								<button
-									type="submit"
-									aria-label="Delete dose"
-									class="h-8 w-8 flex items-center justify-center rounded-full text-[var(--color-text-muted)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)]"
-								>
-									<Icon name="x" size={16} />
-								</button>
-							</form>
-						</div>
-					{/each}
-				</Card>
+				<DoseHistoryList rows={data.recent} onEdit={openEdit} />
 			</div>
 		{/if}
 
 		<!-- Empty state -->
-		{#if data.peptides.length === 0}
+		{#if !data.hasCompounds}
 			<Card href="/peptides/manage">
 				<div class="flex items-center gap-3 text-[var(--color-text-muted)]">
 					<Icon name="vial" size={22} />
@@ -261,8 +183,9 @@
 
 	<LogDoseModal
 		bind:open={logOpen}
-		peptides={data.peptides}
-		vials={data.activeVials}
+		compounds={data.modal.compounds}
+		protocols={data.modal.protocols}
+		vials={data.modal.vials}
 		recentSites={data.siteHistory}
 		initial={logInitial}
 		editing={editingDose}
@@ -270,22 +193,24 @@
 {/if}
 
 {#snippet aiToggle()}
-	<form method="POST" action="?/toggleAiInsights" use:enhance>
-		<input type="hidden" name="enabled" value={String(!data.aiInsightsEnabled)} />
-		<button type="submit" class="flex w-full items-center justify-between gap-3 text-left">
-			<span class="text-sm text-[var(--color-text)]">AI adherence insights</span>
-			<span
-				class={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${data.aiInsightsEnabled ? 'bg-[var(--color-accent)]' : 'bg-[var(--color-surface-alt)]'}`}
-				aria-hidden="true"
-			>
+	{#if data.encryptionReady}
+		<form method="POST" action="?/toggleAiInsights" use:enhance>
+			<input type="hidden" name="enabled" value={String(!data.aiInsightsEnabled)} />
+			<button type="submit" class="flex w-full items-center justify-between gap-3 text-left">
+				<span class="text-sm text-[var(--color-text)]">AI adherence insights</span>
 				<span
-					class={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${data.aiInsightsEnabled ? 'translate-x-[22px]' : 'translate-x-0.5'}`}
-				></span>
-			</span>
-		</button>
-	</form>
-	<p class="text-[0.6875rem] text-[var(--color-text-muted)]">
-		When enabled, your peptide log — compound names, doses, and schedule — is sent to Anthropic's Claude API
-		to generate a plain-language adherence summary. Off by default.
-	</p>
+					class={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${data.aiInsightsEnabled ? 'bg-[var(--color-accent)]' : 'bg-[var(--color-surface-alt)]'}`}
+					aria-hidden="true"
+				>
+					<span
+						class={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${data.aiInsightsEnabled ? 'translate-x-[22px]' : 'translate-x-0.5'}`}
+					></span>
+				</span>
+			</button>
+		</form>
+		<p class="text-[0.6875rem] text-[var(--color-text-muted)]">
+			When enabled, your peptide log — compound names, doses, and schedule — is sent to Anthropic's Claude API to
+			generate a plain-language recap. Off by default.
+		</p>
+	{/if}
 {/snippet}

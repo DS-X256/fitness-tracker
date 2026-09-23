@@ -14,7 +14,7 @@ import { assignDoses, protocolAdherence, todayState, type ProtocolAdherence, typ
 import { dosesCovered, projectRunout, type RunoutProjection } from '$lib/utils/peptideSupply';
 import { expandIntake, type IntakeEntry } from '$lib/utils/peptideIntake';
 import { actuationsRemaining, containerConcentrationMgMl, containerTotalMcg, mcgPerActuation } from '$lib/utils/delivery';
-import { containerFormForRoute, measureUnitForContainerForm, type MeasureUnit } from '$lib/utils/peptides';
+import { containerFormForRoute, measureUnitForContainerForm, pickContainer, type MeasureUnit } from '$lib/utils/peptides';
 
 export const EXPIRY_SOON_DAYS = 7;
 
@@ -141,21 +141,22 @@ export function vialStatus(ctx: PeptideContext, v: VialWithUsage): VialStatus {
 	return { id: v.id, peptideId: v.peptideId, totalMcg, remainingMcg, dosesLeft, unit, projection, expiry, expiresInDays, low };
 }
 
-/** Best container to draw a dose of `peptideId` by `route` from: not depleted, not expired, of the form
- *  the route implies, preferring the one most recently used (the one "in the fridge door"), then the
- *  oldest. Null when nothing fits — never an expired or wrong-form container. */
-export function bestContainer(ctx: PeptideContext, peptideId: number, route: Protocol['route']): VialWithUsage | null {
-	const wantForm = containerFormForRoute(route);
-	const candidates = ctx.vials.filter(
-		(v) => v.peptideId === peptideId && !v.depleted && !(v.expiresAt && v.expiresAt < ctx.today) && (wantForm == null || v.form === wantForm)
-	);
-	if (candidates.length === 0) return null;
+/** When each container was last drawn from ("date|createdAt", sortable) — feeds pickContainer(). */
+export function lastUsedByVial(ctx: PeptideContext): Map<number, string> {
 	const lastUsed = new Map<number, string>();
-	for (const d of ctx.doses) if (d.vialId != null && !lastUsed.has(d.vialId)) lastUsed.set(d.vialId, `${d.date}|${d.createdAt.toISOString()}`);
-	return candidates.sort((a, b) => {
-		const la = lastUsed.get(a.id) ?? '';
-		const lb = lastUsed.get(b.id) ?? '';
-		if (la !== lb) return la < lb ? 1 : -1;
-		return a.id - b.id;
-	})[0];
+	for (const d of ctx.doses) {
+		if (d.vialId != null && !lastUsed.has(d.vialId)) lastUsed.set(d.vialId, `${d.date}|${d.createdAt.toISOString()}`);
+	}
+	return lastUsed;
+}
+
+/** Best container for a dose of `peptideId` by `route` — see pickContainer(). */
+export function bestContainer(ctx: PeptideContext, peptideId: number, route: Protocol['route']): VialWithUsage | null {
+	const lastUsed = lastUsedByVial(ctx);
+	return pickContainer(
+		ctx.vials.map((v) => ({ ...v, lastUsed: lastUsed.get(v.id) ?? null })),
+		peptideId,
+		route,
+		ctx.today
+	);
 }

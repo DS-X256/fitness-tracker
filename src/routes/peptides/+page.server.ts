@@ -1,55 +1,36 @@
 import { fail } from '@sveltejs/kit';
 import { fieldEncryptionAvailable } from '$lib/server/crypto/fieldCrypto';
-import { listPeptides, peptideNameMap } from '$lib/server/repositories/peptides';
-import { listProtocols, getProtocol, toSchedule, toLoadingPhase, toTaperPhase } from '$lib/server/repositories/peptideProtocols';
-import { listVials } from '$lib/server/repositories/peptideVials';
-import {
-	dateCounts,
-	deleteDose,
-	dosesOnDate,
-	listDoses,
-	loggedDatesForPeptide,
-	logDose,
-	mcgConsumedByVial,
-	recentSites,
-	updateDose
-} from '$lib/server/repositories/peptideDoses';
+import { listPeptides } from '$lib/server/repositories/peptides';
+import { getProtocol } from '$lib/server/repositories/peptideProtocols';
+import { deleteDose, logDose, recentSites, updateDose, updateDoseEffects } from '$lib/server/repositories/peptideDoses';
 import { seedPeptidesForUser } from '$lib/server/peptidePresets';
 import { getSettings, updateSettings } from '$lib/server/repositories/userSettings';
 import { getCached } from '$lib/server/repositories/peptideInsights';
 import { aiAvailable } from '$lib/server/ai/client';
 import { generatePeptideInsight } from '$lib/server/ai/peptideInsights';
+import { bestContainer, loadPeptideContext, todayFor, vialStatus } from '$lib/server/peptideContext';
+import { activeLevelRows, adherenceSummary, doseRows, dueRows, logModalData } from '$lib/server/peptideViews';
 import { todayIso } from '$lib/utils/todayIso';
-import { shiftIsoDate } from '$lib/utils/isoDate';
+import { isValidIsoDate } from '$lib/utils/isoDate';
 import { parseDecimal } from '$lib/utils/parseDecimal';
-import { daysBetween, effectiveDoseMcg, isDueOn, isLoadingPhaseOn, isTaperPhaseOn } from '$lib/utils/peptideSchedule';
-import { dosesPerVial, syringeUnits } from '$lib/utils/reconstitution';
+import { daysBetween } from '$lib/utils/peptideSchedule';
+import { syringeUnits } from '$lib/utils/reconstitution';
+import { mcgPerActuation, actuationsForDose, containerConcentrationMgMl } from '$lib/utils/delivery';
 import {
-	mcgPerActuation,
-	actuationsForDose,
-	actuationsRemaining,
-	daysOfSupply,
-	containerConcentrationMgMl,
-	containerTotalMcg
-} from '$lib/utils/delivery';
-import {
-	activeAmountMcg,
 	isAdminRoute,
 	isApplicationSite,
 	isDoseKind,
 	isInjectionRoute,
 	isMeasureUnit,
-	measureUnitForContainerForm,
+	sanitizeEffects,
 	suggestNextSite,
-	containerFormForRoute,
 	type ApplicationSite,
+	type DoseEffect,
 	type MeasureUnit
 } from '$lib/utils/peptides';
 import type { Actions, PageServerLoad } from './$types';
 
-const ADHERENCE_DAYS = 30;
-const CALENDAR_DAYS = 70;
-const EXPIRY_SOON_DAYS = 7;
+const RECENT_DOSES = 10;
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const userId = locals.user!.id;
@@ -60,156 +41,35 @@ export const load: PageServerLoad = async ({ locals }) => {
 		await seedPeptidesForUser(userId);
 	}
 
-	const today = todayIso();
-	const [peptides, protocols, vials, todaysDoses, recent, names, siteHistory, consumedByVial, settings] =
-		await Promise.all([
-			listPeptides(userId),
-			listProtocols(userId, { activeOnly: true }),
-			listVials(userId),
-			dosesOnDate(userId, today),
-			listDoses(userId, { limit: 8 }),
-			peptideNameMap(userId),
-			recentSites(userId, 20),
-			mcgConsumedByVial(userId),
-			getSettings(userId)
-		]);
+	const [ctx, siteHistory, settings] = await Promise.all([loadPeptideContext(userId), recentSites(userId, 20), getSettings(userId)]);
 	const peptideInsight = settings.aiPeptideInsightsEnabled ? await getCached(userId) : null;
 
-	const nameOf = (id: number) => names.get(id)?.name ?? 'Unknown';
-
-	// --- Due today (active protocols scheduled for today, reconciled against what's logged) ---
-	const loggedToday = new Set(todaysDoses.map((d) => d.peptideId));
-	const due = protocols
-		.filter((p) => isDueOn(toSchedule(p), today))
-		.map((p) => ({
-			protocolId: p.id,
-			peptideId: p.peptideId,
-			peptideName: nameOf(p.peptideId),
-			doseMcg: effectiveDoseMcg(p.doseMcg, p.startDate, toLoadingPhase(p), today, toTaperPhase(p)),
-			loading: isLoadingPhaseOn(p.startDate, toLoadingPhase(p), today),
-			tapering: isTaperPhaseOn(p.startDate, toLoadingPhase(p), toTaperPhase(p), today),
-			route: p.route,
-			timeOfDay: p.timeOfDay,
-			logged: loggedToday.has(p.peptideId)
+	const supply = ctx.vials
+		.filter((v) => !v.depleted)
+		.map((v) => ({ vial: v, status: vialStatus(ctx, v) }))
+		.filter(({ status }) => status.expiry != null || status.low)
+		.map(({ vial, status }) => ({
+			...status,
+			peptideName: ctx.byId.get(vial.peptideId)?.name ?? 'Unknown',
+			form: vial.form,
+			vialMg: vial.vialMg,
+			expiresAt: vial.expiresAt
 		}));
-
-	// --- 30-day adherence (logged ÷ scheduled across all active protocols) ---
-	const windowStart = shiftIsoDate(today, -(ADHERENCE_DAYS - 1));
-	let dueTotal = 0;
-	let dueTaken = 0;
-	for (const p of protocols) {
-		const s = toSchedule(p);
-		const start = p.startDate > windowStart ? p.startDate : windowStart;
-		if (start > today) continue;
-		const logged = await loggedDatesForPeptide(userId, p.peptideId, start, today);
-		const span = daysBetween(start, today);
-		for (let i = 0; i <= span; i++) {
-			const d = shiftIsoDate(start, i);
-			if (isDueOn(s, d)) {
-				dueTotal++;
-				if (logged.has(d)) dueTaken++;
-			}
-		}
-	}
-	const adherence = dueTotal > 0 ? { pct: Math.round((dueTaken / dueTotal) * 100), taken: dueTaken, total: dueTotal } : null;
-
-	// --- Calendar (last 10 weeks: logged count + whether anything was due) ---
-	const calFrom = shiftIsoDate(today, -(CALENDAR_DAYS - 1));
-	const counts = await dateCounts(userId, calFrom, today);
-	const calendar: { date: string; count: number; due: boolean }[] = [];
-	for (let i = 0; i <= daysBetween(calFrom, today); i++) {
-		const d = shiftIsoDate(calFrom, i);
-		calendar.push({ date: d, count: counts.get(d) ?? 0, due: protocols.some((p) => isDueOn(toSchedule(p), d)) });
-	}
-
-	// --- Vial alerts: expiry + "doses left" + days-of-supply, per container form. ---
-	const vialAlerts = vials.map((v) => {
-		const proto = protocols.find((p) => p.peptideId === v.peptideId);
-		const totalMcg = containerTotalMcg(v);
-		const remainingMcg = totalMcg != null ? Math.max(0, totalMcg - (consumedByVial.get(v.id) ?? 0)) : null;
-
-		let dosesLeft: number | null = null;
-		if (v.form === 'vial') {
-			// Kept exactly as before remaining-supply tracking existed: a plain dose-count estimate
-			// (dosesLogged is a row count, not an mcg sum), so this stays byte-identical to before.
-			dosesLeft = proto && v.vialMg != null ? Math.max(0, dosesPerVial(v.vialMg, proto.doseMcg) - v.dosesLogged) : null;
-		} else if ((v.form === 'nasal_spray' || v.form === 'serum') && remainingMcg != null && v.actuationVolumeUl) {
-			const conc = containerConcentrationMgMl(v);
-			const mpa = conc != null ? mcgPerActuation(conc, v.actuationVolumeUl) : null;
-			if (mpa != null && mpa > 0) dosesLeft = actuationsRemaining(remainingMcg, mpa);
-		} else if ((v.form === 'capsules' || v.form === 'patches') && remainingMcg != null && v.unitMassMcg) {
-			dosesLeft = Math.floor(remainingMcg / v.unitMassMcg);
-		}
-
-		const daysLeftRaw = proto && proto.doseMcg > 0 && remainingMcg != null ? daysOfSupply(remainingMcg, proto.doseMcg) : null;
-		const daysLeft = daysLeftRaw != null && Number.isFinite(daysLeftRaw) ? daysLeftRaw : null;
-
-		let expiry: 'expired' | 'soon' | null = null;
-		if (v.expiresAt) {
-			if (v.expiresAt < today) expiry = 'expired';
-			else if (daysBetween(today, v.expiresAt) <= EXPIRY_SOON_DAYS) expiry = 'soon';
-		}
-		return {
-			id: v.id,
-			peptideName: nameOf(v.peptideId),
-			form: v.form,
-			vialMg: v.vialMg,
-			expiresAt: v.expiresAt,
-			expiry,
-			dosesLeft,
-			daysLeft,
-			unit: measureUnitForContainerForm(v.form),
-			low: dosesLeft != null && dosesLeft <= 3
-		};
-	});
-
-	// --- Active-in-body estimate (see activeAmountMcg): only for compounds with a half-life set, which
-	// in practice means the long-acting GLP-1 family — most protocols don't set one and skip this entirely.
-	const peptidesWithHalfLife = peptides.filter((p) => p.halfLifeHours != null);
-	const allDoses = peptidesWithHalfLife.length > 0 ? await listDoses(userId) : [];
-	const now = new Date();
-	const activeLevels = peptidesWithHalfLife
-		.map((p) => {
-			const doses = allDoses.filter((d) => d.peptideId === p.id && d.kind === 'dose');
-			return {
-				peptideId: p.id,
-				peptideName: p.name,
-				activeMcg: activeAmountMcg(doses, p.halfLifeHours, now),
-				halfLifeHours: p.halfLifeHours,
-				lastDoseDate: doses[0]?.date ?? null
-			};
-		})
-		.filter((a) => a.activeMcg > 0.01)
-		.sort((a, b) => b.activeMcg - a.activeMcg);
 
 	return {
 		encryptionReady: true as const,
-		today,
-		peptides,
-		due,
-		adherence,
-		calendar,
-		vialAlerts,
-		activeLevels,
+		today: ctx.today,
+		hasCompounds: ctx.peptides.some((p) => p.active),
+		due: dueRows(ctx),
+		adherence: adherenceSummary(ctx),
+		supply,
+		activeLevels: activeLevelRows(ctx),
 		siteHistory,
 		aiInsightsEnabled: settings.aiPeptideInsightsEnabled,
 		aiAvailable: aiAvailable(),
 		peptideInsight,
-		recent: recent.map((d) => ({ ...d, peptideName: nameOf(d.peptideId) })),
-		// For the log-dose modal: active containers, with everything the delivery calculators need.
-		activeVials: vials.map((v) => ({
-			id: v.id,
-			peptideId: v.peptideId,
-			form: v.form,
-			vialMg: v.vialMg,
-			bacWaterMl: v.bacWaterMl,
-			concentrationMgMl: v.concentrationMgMl,
-			percentWv: v.percentWv,
-			actuationVolumeUl: v.actuationVolumeUl,
-			primingActuations: v.primingActuations,
-			unitCount: v.unitCount,
-			unitMassMcg: v.unitMassMcg
-		}))
+		recent: doseRows(ctx, ctx.doses.slice(0, RECENT_DOSES)),
+		modal: logModalData(ctx)
 	};
 };
 
@@ -220,37 +80,66 @@ function num(form: FormData, key: string): number | null {
 	return Number.isFinite(n) ? n : null;
 }
 
+/** Effects arrive as a JSON array in one hidden field. Absent field → null ("don't touch"), so an edit
+ *  from a form that doesn't carry effects never wipes them. */
+function parseEffects(form: FormData): DoseEffect[] | null {
+	if (!form.has('effects')) return null;
+	try {
+		return sanitizeEffects(JSON.parse(String(form.get('effects') ?? '[]')));
+	} catch {
+		return [];
+	}
+}
+
+/** The client's own local date, trusted only within a day of the server's — covers a server whose TZ
+ *  isn't set to the user's, without letting a form post backdate arbitrarily through quick actions. */
+function clientDate(form: FormData): string {
+	const server = todayIso();
+	const raw = String(form.get('clientDate') ?? '').trim();
+	if (isValidIsoDate(raw) && Math.abs(daysBetween(server, raw)) <= 1) return raw;
+	return server;
+}
+
+function clientTime(form: FormData): string | null {
+	const raw = String(form.get('clientTime') ?? '').trim();
+	return /^\d{2}:\d{2}$/.test(raw) ? raw : null;
+}
+
+function doseInput(form: FormData) {
+	const peptideId = Number(form.get('peptideId'));
+	const kindRaw = String(form.get('kind') ?? '');
+	const kind = isDoseKind(kindRaw) ? kindRaw : 'dose';
+	const siteRaw = String(form.get('site') ?? '');
+	const routeRaw = String(form.get('route') ?? '');
+	const vialId = Number(form.get('vialId'));
+	const protocolId = Number(form.get('protocolId'));
+	const measureUnitRaw = String(form.get('measureUnit') ?? '');
+	return {
+		peptideId,
+		date: String(form.get('date') ?? '').trim() || todayIso(),
+		doseMcg: kind === 'skip' ? 0 : (num(form, 'doseMcg') ?? NaN),
+		// Broad validators — any application site/route, not just the injection-shaped ones.
+		site: isApplicationSite(siteRaw) ? siteRaw : null,
+		route: isAdminRoute(routeRaw) ? routeRaw : null,
+		time: String(form.get('time') ?? '').trim() || null,
+		vialId: Number.isFinite(vialId) && vialId > 0 ? vialId : null,
+		protocolId: Number.isFinite(protocolId) && protocolId > 0 ? protocolId : null,
+		measureCount: num(form, 'measureCount'),
+		measureUnit: isMeasureUnit(measureUnitRaw) ? measureUnitRaw : null,
+		kind,
+		notes: String(form.get('notes') ?? '').trim() || null,
+		effects: parseEffects(form)
+	};
+}
+
 export const actions: Actions = {
 	logDose: async ({ request, locals }) => {
-		const userId = locals.user!.id;
 		const form = await request.formData();
-		const peptideId = Number(form.get('peptideId'));
-		if (!Number.isFinite(peptideId)) return fail(400, { error: 'Pick a peptide' });
-		const doseMcg = num(form, 'doseMcg');
-		if (doseMcg == null) return fail(400, { error: 'Enter a dose in mcg' });
-		const siteRaw = String(form.get('site') ?? '');
-		const routeRaw = String(form.get('route') ?? '');
-		const vialId = Number(form.get('vialId'));
-		const protocolId = Number(form.get('protocolId'));
-		const measureCount = num(form, 'measureCount');
-		const measureUnitRaw = String(form.get('measureUnit') ?? '');
-		const kindRaw = String(form.get('kind') ?? '');
+		const input = doseInput(form);
+		if (!Number.isInteger(input.peptideId) || input.peptideId <= 0) return fail(400, { error: 'Pick a peptide' });
+		if (input.kind !== 'skip' && !Number.isFinite(input.doseMcg)) return fail(400, { error: 'Enter a dose' });
 		try {
-			await logDose(userId, {
-				peptideId,
-				date: String(form.get('date') ?? '').trim() || todayIso(),
-				doseMcg,
-				// Broad validators — any application site/route, not just the injection-shaped ones.
-				site: isApplicationSite(siteRaw) ? siteRaw : null,
-				route: isAdminRoute(routeRaw) ? routeRaw : null,
-				time: String(form.get('time') ?? '').trim() || null,
-				vialId: Number.isFinite(vialId) && vialId > 0 ? vialId : null,
-				protocolId: Number.isFinite(protocolId) && protocolId > 0 ? protocolId : null,
-				measureCount,
-				measureUnit: isMeasureUnit(measureUnitRaw) ? measureUnitRaw : null,
-				kind: isDoseKind(kindRaw) ? kindRaw : 'dose',
-				notes: String(form.get('notes') ?? '').trim() || null
-			});
+			await logDose(locals.user!.id, input);
 		} catch (e) {
 			return fail(400, { error: e instanceof Error ? e.message : 'Could not log dose' });
 		}
@@ -258,51 +147,35 @@ export const actions: Actions = {
 	},
 
 	updateDose: async ({ request, locals }) => {
-		const userId = locals.user!.id;
 		const form = await request.formData();
 		const id = Number(form.get('id'));
-		if (!Number.isFinite(id)) return fail(400, { error: 'Invalid dose' });
-		const peptideId = Number(form.get('peptideId'));
-		if (!Number.isFinite(peptideId)) return fail(400, { error: 'Pick a peptide' });
-		const doseMcg = num(form, 'doseMcg');
-		if (doseMcg == null) return fail(400, { error: 'Enter a dose in mcg' });
-		const siteRaw = String(form.get('site') ?? '');
-		const routeRaw = String(form.get('route') ?? '');
-		const vialId = Number(form.get('vialId'));
-		const protocolId = Number(form.get('protocolId'));
-		const measureCount = num(form, 'measureCount');
-		const measureUnitRaw = String(form.get('measureUnit') ?? '');
-		const kindRaw = String(form.get('kind') ?? '');
+		if (!Number.isInteger(id) || id <= 0) return fail(400, { error: 'Invalid dose' });
+		const input = doseInput(form);
+		if (!Number.isInteger(input.peptideId) || input.peptideId <= 0) return fail(400, { error: 'Pick a peptide' });
+		if (input.kind !== 'skip' && !Number.isFinite(input.doseMcg)) return fail(400, { error: 'Enter a dose' });
 		try {
-			await updateDose(userId, id, {
-				peptideId,
-				date: String(form.get('date') ?? '').trim() || todayIso(),
-				doseMcg,
-				site: isApplicationSite(siteRaw) ? siteRaw : null,
-				route: isAdminRoute(routeRaw) ? routeRaw : null,
-				time: String(form.get('time') ?? '').trim() || null,
-				vialId: Number.isFinite(vialId) && vialId > 0 ? vialId : null,
-				protocolId: Number.isFinite(protocolId) && protocolId > 0 ? protocolId : null,
-				measureCount,
-				measureUnit: isMeasureUnit(measureUnitRaw) ? measureUnitRaw : null,
-				kind: isDoseKind(kindRaw) ? kindRaw : 'dose',
-				notes: String(form.get('notes') ?? '').trim() || null
-			});
+			await updateDose(locals.user!.id, id, input);
 		} catch (e) {
 			return fail(400, { error: e instanceof Error ? e.message : 'Could not update dose' });
 		}
 		return { success: true };
 	},
 
-	// One-tap logging of a due protocol at today's date, rotating to the suggested site.
+	// One-tap logging of a due protocol: today's target dose (loading/taper aware), the best open
+	// container, the next rotation site, and the time it was actually tapped — not the protocol's planned
+	// time, which used to make every quick-logged dose look perfectly on schedule.
 	quickLog: async ({ request, locals }) => {
 		const userId = locals.user!.id;
 		const form = await request.formData();
-		const protocolId = Number(form.get('protocolId'));
-		const proto = await getProtocol(userId, protocolId);
+		const proto = await getProtocol(userId, Number(form.get('protocolId')));
 		if (!proto) return fail(400, { error: 'Protocol not found' });
-		const today = todayIso();
-		const doseMcg = effectiveDoseMcg(proto.doseMcg, proto.startDate, toLoadingPhase(proto), today, toTaperPhase(proto));
+		const date = clientDate(form);
+		const ctx = await loadPeptideContext(userId, date);
+		const state = todayFor(ctx, proto);
+		if (state.mode === 'slots' && state.slots > 0 && state.pending === 0) {
+			return fail(400, { error: "Today's doses for this protocol are already logged" });
+		}
+		const doseMcg = state.targetMcg;
 
 		const route = proto.route ?? null;
 		let site: ApplicationSite | null = null;
@@ -311,10 +184,7 @@ export const actions: Actions = {
 			site = suggestNextSite(route, history.filter((h) => h.route === route).map((h) => h.site));
 		}
 
-		const containers = await listVials(userId, { peptideId: proto.peptideId });
-		const wantForm = containerFormForRoute(route);
-		const container = containers.find((v) => v.form === wantForm) ?? (wantForm ? null : containers[0]) ?? null;
-
+		const container = bestContainer(ctx, proto.peptideId, route);
 		let measureCount: number | null = null;
 		let measureUnit: MeasureUnit | null = null;
 		if (route && isInjectionRoute(route) && container?.form === 'vial' && container.vialMg != null && container.bacWaterMl) {
@@ -330,8 +200,7 @@ export const actions: Actions = {
 				}
 			}
 		} else if (route === 'transdermal' && container?.form === 'patches') {
-			// A patch isn't dialed in like a spray count — one application is one patch, whatever its
-			// declared strength. doseMcg below stays the protocol's own target either way.
+			// One application is one patch, whatever its declared strength; doseMcg stays the target.
 			measureCount = 1;
 			measureUnit = 'patch';
 		}
@@ -341,17 +210,58 @@ export const actions: Actions = {
 				peptideId: proto.peptideId,
 				protocolId: proto.id,
 				vialId: container?.id ?? null,
-				date: today,
+				date,
 				doseMcg,
 				site,
 				route,
-				time: proto.timeOfDay,
+				time: clientTime(form),
 				measureCount,
 				measureUnit,
 				kind: 'dose'
 			});
 		} catch (e) {
 			return fail(400, { error: e instanceof Error ? e.message : 'Could not log dose' });
+		}
+		return { success: true };
+	},
+
+	// "Not taking this one": records a skip against the protocol's next open slot today, so adherence
+	// shows it as skipped rather than missed.
+	skipDose: async ({ request, locals }) => {
+		const userId = locals.user!.id;
+		const form = await request.formData();
+		const proto = await getProtocol(userId, Number(form.get('protocolId')));
+		if (!proto) return fail(400, { error: 'Protocol not found' });
+		const date = clientDate(form);
+		const ctx = await loadPeptideContext(userId, date);
+		const state = todayFor(ctx, proto);
+		const open = state.mode === 'slots' ? state.pending : state.remaining;
+		if (open <= 0) return fail(400, { error: 'Nothing left to skip today' });
+		try {
+			await logDose(userId, {
+				peptideId: proto.peptideId,
+				protocolId: proto.id,
+				date,
+				doseMcg: 0,
+				route: proto.route,
+				time: clientTime(form),
+				kind: 'skip',
+				notes: String(form.get('reason') ?? '').trim() || null
+			});
+		} catch (e) {
+			return fail(400, { error: e instanceof Error ? e.message : 'Could not skip' });
+		}
+		return { success: true };
+	},
+
+	setDoseEffects: async ({ request, locals }) => {
+		const form = await request.formData();
+		const id = Number(form.get('id'));
+		if (!Number.isInteger(id) || id <= 0) return fail(400, { error: 'Invalid dose' });
+		try {
+			await updateDoseEffects(locals.user!.id, id, parseEffects(form) ?? []);
+		} catch (e) {
+			return fail(400, { error: e instanceof Error ? e.message : 'Could not save side effects' });
 		}
 		return { success: true };
 	},

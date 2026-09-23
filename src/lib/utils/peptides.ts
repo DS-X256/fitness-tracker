@@ -220,6 +220,26 @@ export function containerFormForRoute(route: AdminRoute | null | undefined): Con
 	}
 }
 
+/** The container a new dose of `peptideId` by `route` should come from: not depleted, not expired, of the
+ *  form the route implies, preferring the most recently used one (the one already open), then the oldest.
+ *  `lastUsed` is a sortable "date|createdAt" key per container. Null when nothing fits — never an
+ *  expired or wrong-form container. Shared by one-tap logging (server) and the log form (client). */
+export function pickContainer<
+	V extends { id: number; peptideId: number; form: ContainerForm; depleted?: boolean; expiresAt?: string | null; lastUsed?: string | null }
+>(vials: V[], peptideId: number, route: AdminRoute | '' | null | undefined, today: string): V | null {
+	const wantForm = containerFormForRoute(route || null);
+	const candidates = vials.filter(
+		(v) => v.peptideId === peptideId && !v.depleted && !(v.expiresAt && v.expiresAt < today) && (wantForm == null || v.form === wantForm)
+	);
+	if (candidates.length === 0) return null;
+	return [...candidates].sort((a, b) => {
+		const la = a.lastUsed ?? '';
+		const lb = b.lastUsed ?? '';
+		if (la !== lb) return la < lb ? 1 : -1;
+		return a.id - b.id;
+	})[0];
+}
+
 /** --- Dose recording -----------------------------------------------------------------------------------
  *  What the user actually measured out, alongside the canonical mcg figure. 'unit' is syringe units
  *  (U-100), preserved from before this type existed. */
