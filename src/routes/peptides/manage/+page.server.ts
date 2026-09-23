@@ -1,24 +1,13 @@
 import { fail } from '@sveltejs/kit';
 import { fieldEncryptionAvailable } from '$lib/server/crypto/fieldCrypto';
-import {
-	createPeptide,
-	deletePeptide,
-	listPeptides,
-	setPeptideActive,
-	updatePeptide
-} from '$lib/server/repositories/peptides';
-import {
-	createProtocol,
-	deleteProtocol,
-	listProtocols,
-	setProtocolActive,
-	updateProtocol
-} from '$lib/server/repositories/peptideProtocols';
+import { createPeptide, deletePeptide, listPeptides, setPeptideActive, updatePeptide } from '$lib/server/repositories/peptides';
+import { createProtocol, deleteProtocol, listProtocols, setProtocolActive, updateProtocol } from '$lib/server/repositories/peptideProtocols';
 import { createVial, deleteVial, listVials, setVialDepleted, updateVial } from '$lib/server/repositories/peptideVials';
 import { seedPeptidesForUser } from '$lib/server/peptidePresets';
 import { parseDecimal } from '$lib/utils/parseDecimal';
-import { isPeptideCategory, isAdminRoute, isContainerForm } from '$lib/utils/peptides';
-import { isFrequency } from '$lib/utils/peptideSchedule';
+import { isPeptideCategory, isAdminRoute, isContainerForm, type BlendComponent } from '$lib/utils/peptides';
+import { isFrequency, scheduleLabel } from '$lib/utils/peptideSchedule';
+import { toSchedule } from '$lib/server/repositories/peptideProtocols';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -35,7 +24,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	return {
 		encryptionReady: true as const,
 		peptides,
-		protocols: protocols.map((p) => ({ ...p, peptideName: nameOf.get(p.peptideId) ?? 'Unknown' })),
+		protocols: protocols.map((p) => ({ ...p, peptideName: nameOf.get(p.peptideId) ?? 'Unknown', schedule: scheduleLabel(toSchedule(p)) })),
 		vials: vials.map((v) => ({ ...v, peptideName: nameOf.get(v.peptideId) ?? 'Unknown' }))
 	};
 };
@@ -59,6 +48,27 @@ function weekdayMask(form: FormData): number {
 	return mask;
 }
 
+/** The BlendMixEditor's parallel arrays → component rows (label mg and/or percent, plus the link id). */
+function parseComponents(form: FormData): BlendComponent[] {
+	const names = form.getAll('componentName').map(String);
+	const mgs = form.getAll('componentMg').map(String);
+	const pcts = form.getAll('componentPercent').map(String);
+	const ids = form.getAll('componentPeptideId').map(String);
+	const dec = (raw: string | undefined) => {
+		const t = (raw ?? '').trim();
+		return t === '' ? null : parseDecimal(t);
+	};
+	return names.map((name, i) => {
+		const id = Number(ids[i]);
+		return {
+			name,
+			labelMg: dec(mgs[i]),
+			percent: dec(pcts[i]) ?? NaN,
+			peptideId: Number.isInteger(id) && id > 0 ? id : null
+		};
+	});
+}
+
 export const actions: Actions = {
 	seedPresets: async ({ locals }) => {
 		const added = await seedPeptidesForUser(locals.user!.id);
@@ -72,18 +82,14 @@ export const actions: Actions = {
 		const id = Number(form.get('id'));
 		const category = String(form.get('category') ?? '');
 		const isBlend = form.get('isBlend') === 'on';
-		const componentNames = form.getAll('componentName').map((v) => String(v));
-		const componentPercents = form.getAll('componentPercent').map((v) => parseDecimal(String(v)));
 		const input = {
 			name: str(form, 'name') ?? '',
 			category: isPeptideCategory(category) ? category : null,
 			vialMg: num(form, 'vialMg'),
 			notes: str(form, 'notes'),
 			isBlend,
-			components: isBlend
-				? componentNames.map((name, i) => ({ name, percent: componentPercents[i] }))
-				: null,
-			halfLifeHours: num(form, 'halfLifeHours')
+			components: isBlend ? parseComponents(form) : null,
+			halfLifeHours: isBlend ? null : num(form, 'halfLifeHours')
 		};
 		try {
 			if (Number.isFinite(id) && id > 0) await updatePeptide(userId, id, input);
@@ -98,8 +104,12 @@ export const actions: Actions = {
 		await setPeptideActive(locals.user!.id, Number(form.get('id')), form.get('active') === 'true');
 		return { success: true };
 	},
+	// Deleting a compound deletes its whole dose history (FK cascade), so the page confirms first and
+	// this refuses without that confirmation — a stray tap can't wipe months of log.
 	deletePeptide: async ({ request, locals }) => {
-		await deletePeptide(locals.user!.id, Number((await request.formData()).get('id')));
+		const form = await request.formData();
+		if (form.get('confirm') !== 'yes') return fail(400, { error: 'Confirm deleting this compound and its history' });
+		await deletePeptide(locals.user!.id, Number(form.get('id')));
 		return { success: true };
 	},
 
@@ -111,7 +121,7 @@ export const actions: Actions = {
 		const frequency = String(form.get('frequency') ?? '');
 		const route = String(form.get('route') ?? '');
 		const doseMcg = num(form, 'doseMcg');
-		if (doseMcg == null) return fail(400, { error: 'Enter a dose in mcg' });
+		if (doseMcg == null) return fail(400, { error: 'Enter a dose' });
 		if (!isFrequency(frequency)) return fail(400, { error: 'Pick a frequency' });
 		const input = {
 			peptideId: Number(form.get('peptideId')),
@@ -120,6 +130,8 @@ export const actions: Actions = {
 			frequency,
 			weekdayMask: frequency === 'weekly' ? weekdayMask(form) : null,
 			perWeek: num(form, 'perWeek'),
+			intervalDays: num(form, 'intervalDays'),
+			timesPerDay: num(form, 'timesPerDay'),
 			timeOfDay: str(form, 'timeOfDay'),
 			startDate: str(form, 'startDate') ?? '',
 			endDate: str(form, 'endDate'),
@@ -130,7 +142,8 @@ export const actions: Actions = {
 			loadingDoseMcg: num(form, 'loadingDoseMcg'),
 			loadingDurationDays: num(form, 'loadingDurationDays'),
 			taperDoseMcg: num(form, 'taperDoseMcg'),
-			taperAfterDays: num(form, 'taperAfterDays')
+			taperAfterDays: num(form, 'taperAfterDays'),
+			components: form.get('customMix') === 'on' ? parseComponents(form) : null
 		};
 		try {
 			if (Number.isFinite(id) && id > 0) await updateProtocol(userId, id, input);

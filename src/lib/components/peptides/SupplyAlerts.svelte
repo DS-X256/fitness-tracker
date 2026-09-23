@@ -41,11 +41,11 @@
 					<div class="mt-0.5 shrink-0 text-[var(--color-danger)]"><Icon name="alert" size={18} /></div>
 					<div class="flex-1 min-w-0 text-sm">
 						<p class="text-[var(--color-text)] truncate">
-							{v.peptideName}{#if v.form === 'vial' && v.vialMg} · {v.vialMg} mg vial{:else if v.form !== 'vial'} · {CONTAINER_FORM_LABELS[v.form]}{/if}
+							{v.peptideName}{#if v.form === 'vial' && v.vialMg}{' · '}{v.vialMg} mg vial{:else if v.form !== 'vial'}{' · '}{CONTAINER_FORM_LABELS[v.form]}{/if}
 						</p>
 						<p class="text-xs text-[var(--color-text-muted)]">
 							{#if v.expiry === 'expired'}Expired {fmtDate(v.expiresAt!)}{:else if v.expiry === 'soon'}Expires {fmtDate(v.expiresAt!)}{/if}
-							{#if v.expiry && v.low} · {/if}
+							{#if v.expiry && v.low}{' · '}{/if}
 							{#if v.low}
 								{leftLabel(v) ?? ''}{#if v.projection?.runsOutOn}{leftLabel(v) ? ' · ' : ''}runs out ~{fmtDate(v.projection.runsOutOn)}{/if}
 							{/if}

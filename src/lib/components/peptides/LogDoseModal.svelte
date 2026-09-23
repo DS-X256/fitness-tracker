@@ -418,7 +418,7 @@
 						<NumberStepper label="Sprays" bind:value={sprayCount} step={1} min={0} class="max-w-[160px]" />
 						<div class="flex-1 text-sm text-[var(--color-text-muted)] pb-2.5">
 							{#if mcgPerSpray != null}
-								≈ {formatDose(nasalDoseMcg)}{#if nostrilHint} · {nostrilHint[0]} L / {nostrilHint[1]} R{/if}
+								≈ {formatDose(nasalDoseMcg)}{#if nostrilHint}{' · '}{nostrilHint[0]} L / {nostrilHint[1]} R{/if}
 							{:else}
 								Select a nasal spray container above to auto-calculate mcg.
 							{/if}

@@ -63,7 +63,7 @@
 					{/if}
 				</p>
 				<p class="text-xs text-[var(--color-text-muted)] tabular-nums">
-					{fmtDate(dose.date)}{#if dose.time} · {dose.time}{/if}{#if dose.site} · {siteLabel(dose.site)}{/if}{#if dose.kind !== 'dose' && dose.kind !== 'skip'} · {kindLabel(dose.kind)}{/if}
+					{fmtDate(dose.date)}{#if dose.time}{' · '}{dose.time}{/if}{#if dose.site}{' · '}{siteLabel(dose.site)}{/if}{#if dose.kind !== 'dose' && dose.kind !== 'skip'}{' · '}{kindLabel(dose.kind)}{/if}
 				</p>
 				{#if dose.split && !via}<BlendBreakdown portions={dose.split} estimated={dose.splitEstimated} linkable class="mt-0.5" />{/if}
 				{#if dose.effects.length > 0}

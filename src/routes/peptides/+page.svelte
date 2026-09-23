@@ -139,7 +139,7 @@
 				</div>
 				<AdherenceCalendar days={data.adherence.calendar} today={data.today} />
 				<p class="mt-3 text-xs text-[var(--color-text-muted)] tabular-nums">
-					{data.adherence.totals.taken} taken · {data.adherence.totals.missed} missed{#if data.adherence.totals.skipped} · {data.adherence.totals.skipped} skipped{/if}{#if data.adherence.totals.pending} · {data.adherence.totals.pending} still due{/if}
+					{data.adherence.totals.taken} taken · {data.adherence.totals.missed} missed{#if data.adherence.totals.skipped}{' · '}{data.adherence.totals.skipped} skipped{/if}{#if data.adherence.totals.pending}{' · '}{data.adherence.totals.pending} still due{/if}
 				</p>
 			</Card>
 		{/if}

@@ -117,7 +117,7 @@
 							<p class="text-xs font-medium text-white tabular-nums">{fmtDate(photo.date)}</p>
 							{#if peptideName(photo.peptideId) || photo.caption}
 								<p class="truncate text-[11px] text-white/80">
-									{#if peptideName(photo.peptideId)}{peptideName(photo.peptideId)}{/if}{#if peptideName(photo.peptideId) && photo.caption} · {/if}{photo.caption ?? ''}
+									{#if peptideName(photo.peptideId)}{peptideName(photo.peptideId)}{/if}{#if peptideName(photo.peptideId) && photo.caption}{' · '}{/if}{photo.caption ?? ''}
 								</p>
 							{/if}
 						</div>

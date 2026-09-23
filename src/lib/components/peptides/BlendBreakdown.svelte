@@ -19,7 +19,9 @@
 
 {#if portions.length > 0}
 	<p class={`text-xs text-[var(--color-text-muted)] tabular-nums leading-relaxed ${className}`}>
-		{#if estimated}<span title="Split estimated from the blend's current ratio">≈ </span>{/if}{#each portions as p, i (i)}{#if i > 0}<span aria-hidden="true"> · </span>{/if}{#if linkable && p.peptideId != null}<a href={`/peptides/${p.peptideId}`} class="hover:text-[var(--color-accent)]">{p.name}</a>{:else}{p.name}{/if}
-			<span class="text-[var(--color-text)]">{formatDose(p.mcg)}</span>{/each}
+		{#if estimated}<span title="Split estimated from the blend's current ratio">{'≈ '}</span>{/if}{#each portions as p, i (i)}{#if i > 0}<span aria-hidden="true">{' · '}</span>{/if}<span class="whitespace-nowrap"
+				>{#if linkable && p.peptideId != null}<a href={`/peptides/${p.peptideId}`} class="hover:text-[var(--color-accent)]">{p.name}</a
+					>{:else}{p.name}{/if}{' '}<span class="text-[var(--color-text)]">{formatDose(p.mcg)}</span></span
+			>{/each}
 	</p>
 {/if}
