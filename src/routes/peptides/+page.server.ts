@@ -7,7 +7,7 @@ import { seedPeptidesForUser } from '$lib/server/peptidePresets';
 import { getSettings, updateSettings } from '$lib/server/repositories/userSettings';
 import { getCached } from '$lib/server/repositories/peptideInsights';
 import { aiAvailable } from '$lib/server/ai/client';
-import { generatePeptideInsight } from '$lib/server/ai/peptideInsights';
+import { currentInsightFingerprint, generatePeptideInsight } from '$lib/server/ai/peptideInsights';
 import { bestContainer, loadPeptideContext, todayFor, vialStatus } from '$lib/server/peptideContext';
 import { activeLevelRows, adherenceSummary, doseRows, dueRows, logModalData } from '$lib/server/peptideViews';
 import { todayIso } from '$lib/utils/todayIso';
@@ -68,6 +68,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 		aiInsightsEnabled: settings.aiPeptideInsightsEnabled,
 		aiAvailable: aiAvailable(),
 		peptideInsight,
+		// A recap written before the latest log/edit/delete (or before today) is flagged, not silently shown.
+		insightStale: peptideInsight != null && peptideInsight.fingerprint !== currentInsightFingerprint(ctx),
 		recent: doseRows(ctx, ctx.doses.slice(0, RECENT_DOSES)),
 		modal: logModalData(ctx)
 	};

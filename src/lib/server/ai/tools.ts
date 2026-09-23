@@ -1,9 +1,10 @@
 // Read-only, userId-scoped tools the AI Coach can call to pull the user's own data on demand. Every
 // handler takes `userId` from the server session — never from the model — so a tool can only ever read
-// the calling user's rows. Each is a thin wrapper over an existing repository function; there is no new
-// query logic here. Handlers return a JSON string (the tool_result content) built from the pre-computed
-// totals/trends the repos already produce. Free-text notes are deliberately excluded from peptide
-// payloads, matching the peptide-insights precedent.
+// the calling user's rows. Each is a thin wrapper over existing repository/shared-engine functions; there
+// is no new query logic here. Handlers return a JSON string (the tool_result content) built from the
+// pre-computed totals/trends those already produce. Peptide tools read the same shared facts the
+// dashboard shows (ai/peptideFacts.ts). Dose notes and side-effect check-ins are included ONLY in
+// get_peptide_dose_log — the user opted into that for the Coach; the dashboard recap never sends them.
 
 import type Anthropic from '@anthropic-ai/sdk';
 import { recentDaySummaries, getTargets } from '$lib/server/repositories/nutritionLog';
@@ -15,13 +16,12 @@ import { listExercises } from '$lib/server/repositories/exercises';
 import { getExerciseProgress, weeklySetsByMuscleGroup } from '$lib/server/repositories/progress';
 import { goalsWithProgress } from '$lib/server/repositories/exerciseGoals';
 import { listSessions } from '$lib/server/repositories/workouts';
-import { listProtocols, toLoadingPhase, toSchedule, toTaperPhase } from '$lib/server/repositories/peptideProtocols';
-import { listVials } from '$lib/server/repositories/peptideVials';
-import { listDoses, loggedDatesForPeptide, mcgConsumedByVial } from '$lib/server/repositories/peptideDoses';
-import { peptideNameMap } from '$lib/server/repositories/peptides';
-import { effectiveDoseMcg, isLoadingPhaseOn, isTaperPhaseOn, scheduledCount } from '$lib/utils/peptideSchedule';
-import { containerTotalMcg, daysOfSupply } from '$lib/utils/delivery';
-import { ROUTE_LABELS } from '$lib/utils/peptides';
+import { loadPeptideContext } from '$lib/server/peptideContext';
+import { activeLevelRows } from '$lib/server/peptideViews';
+import { buildPeptideFacts, doseLogForAi } from './peptideFacts';
+import { activeAmountMcg, formatLevel, formatHalfLife, ROUTE_LABELS } from '$lib/utils/peptides';
+import { levelDoses } from '$lib/utils/peptideIntake';
+import { isValidIsoDate } from '$lib/utils/isoDate';
 import { todayIso } from '$lib/utils/todayIso';
 import { shiftIsoDate } from '$lib/utils/isoDate';
 
@@ -67,7 +67,29 @@ export const TOOLS: Anthropic.Tool[] = [
 	{
 		name: 'get_peptide_status',
 		description:
-			"The user's active peptide protocols with this-cycle adherence (planned vs logged), the actual logged dose amounts, today's target dose (accounting for any active loading/taper phase, which can differ from the protocol's base dose), inventory days-of-supply, and expiry. Use for questions about peptides, protocols, dosing, adherence, or supply.",
+			"The user's peptide overview for a window (default last 30 days): what they actually took per compound and route (blend doses already split into components, e.g. KLOW → GHK-Cu/BPC-157/TB-500/KPV), every protocol (active or paused) with schedule, loading/taper phases, today's target and what's still due today, adherence (taken/missed/skipped), each logged dose with the target for that date, supply per container with a schedule-aware run-out date and concentration, upcoming phase changes, and recent side-effect tags. Call this first for any question about their peptides, protocols, what they've taken, adherence or supply.",
+		input_schema: {
+			type: 'object',
+			properties: { days: { type: 'integer', description: 'Window length in days, ending today (default 30, max 180).' } }
+		}
+	},
+	{
+		name: 'get_peptide_dose_log',
+		description:
+			"The detailed dose log for a date range, newest first: each entry's compound, amount (and blend split), route, injection site, syringe units/sprays, container, protocol, skip/prime markers, side-effect check-ins and the user's own notes. Use when you need individual doses, timing, sites, how they felt, or notes — e.g. 'when did the nausea start', 'which sites have I used'.",
+		input_schema: {
+			type: 'object',
+			properties: {
+				from: { type: 'string', description: 'Start date YYYY-MM-DD (default 30 days ago).' },
+				to: { type: 'string', description: 'End date YYYY-MM-DD (default today).' },
+				compound: { type: 'string', description: 'Optional compound name filter; also matches blend doses containing it.' }
+			}
+		}
+	},
+	{
+		name: 'get_peptide_levels',
+		description:
+			"Estimated amount still active in the body per compound and route (single-compartment decay from logged doses incl. blend components, using each compound's reference half-life), with a daily estimate for the last 14 days. Only compounds with a half-life on file. A rough model — say so when you use it.",
 		input_schema: { type: 'object', properties: {} }
 	}
 ];
@@ -108,7 +130,11 @@ export async function runTool(userId: number, name: string, input: Record<string
 			case 'get_strength_goals':
 				return JSON.stringify(await goalsWithProgress(userId));
 			case 'get_peptide_status':
-				return JSON.stringify(await peptideStatus(userId));
+				return JSON.stringify(await peptideStatus(userId, input));
+			case 'get_peptide_dose_log':
+				return JSON.stringify(await peptideDoseLog(userId, input));
+			case 'get_peptide_levels':
+				return JSON.stringify(await peptideLevels(userId));
 			default:
 				return JSON.stringify({ error: `Unknown tool: ${name}` });
 		}
@@ -163,69 +189,46 @@ async function exerciseProgress(userId: number, input: Record<string, unknown>) 
 	return getExerciseProgress(userId, match.id);
 }
 
-async function peptideStatus(userId: number) {
-	const today = todayIso();
-	const WINDOW_DAYS = 30;
-	const [protocols, vials, consumedByVial, names] = await Promise.all([
-		listProtocols(userId, { activeOnly: true }),
-		listVials(userId),
-		mcgConsumedByVial(userId),
-		peptideNameMap(userId)
-	]);
-	const nameOf = (id: number) => names.get(id)?.name ?? 'Unknown compound';
+async function peptideStatus(userId: number, input: Record<string, unknown>) {
+	const ctx = await loadPeptideContext(userId);
+	return buildPeptideFacts(ctx, { windowDays: clampInt(input.days, 30, 1, 180) });
+}
 
-	const protocolSummaries = [];
-	for (const p of protocols) {
-		const windowStart = shiftIsoDate(today, -(WINDOW_DAYS - 1));
-		const from = p.startDate > windowStart ? p.startDate : windowStart;
-		if (from > today) continue;
-		const planned = scheduledCount(toSchedule(p), from, today);
-		const [loggedDays, doses] = await Promise.all([
-			loggedDatesForPeptide(userId, p.peptideId, from, today),
-			listDoses(userId, { peptideId: p.peptideId, from, to: today })
-		]);
-		// listDoses returns newest-first; reverse to chronological (oldest→newest) and keep each value's
-		// own date attached so the model can't misread the trend direction from array order alone (it
-		// previously did — a bare newest-first list of numbers reads, left to right, as a *decreasing*
-		// trend when the user has actually been increasing their dose).
-		const loggedDoseMcgValues = doses
-			.filter((d) => d.kind === 'dose')
-			.map((d) => ({ date: d.date, doseMcg: d.doseMcg }))
-			.reverse();
-		// A protocol's own configured dose isn't necessarily what's due *today* — an active loading or
-		// taper phase temporarily overrides it (see peptideSchedule.ts). Surface both the maintenance
-		// figure and today's actual target so the model doesn't read an intentionally
-		// elevated/reduced logged dose as drift from the protocol.
-		protocolSummaries.push({
-			peptideName: nameOf(p.peptideId),
-			route: p.route ? (ROUTE_LABELS[p.route] ?? p.route) : null,
-			frequency: p.frequency,
-			protocolDoseMcg: p.doseMcg,
-			todaysTargetDoseMcg: effectiveDoseMcg(p.doseMcg, p.startDate, toLoadingPhase(p), today, toTaperPhase(p)),
-			loadingPhaseActiveToday: isLoadingPhaseOn(p.startDate, toLoadingPhase(p), today),
-			taperPhaseActiveToday: isTaperPhaseOn(p.startDate, toLoadingPhase(p), toTaperPhase(p), today),
-			plannedThisWindow: planned,
-			loggedThisWindow: loggedDays.size,
-			loggedDoseMcgValues
-		});
-	}
+async function peptideDoseLog(userId: number, input: Record<string, unknown>) {
+	const ctx = await loadPeptideContext(userId);
+	const to = typeof input.to === 'string' && isValidIsoDate(input.to) ? input.to : ctx.today;
+	const from = typeof input.from === 'string' && isValidIsoDate(input.from) ? input.from : shiftIsoDate(to, -29);
+	const compound = typeof input.compound === 'string' ? input.compound : null;
+	return { today: ctx.today, ...doseLogForAi(ctx, { from, to, compound, limit: 200 }) };
+}
 
-	const vialSummaries = vials
-		.filter((v) => !v.depleted)
-		.map((v) => {
-			const proto = protocols.find((p) => p.peptideId === v.peptideId);
-			const totalMcg = containerTotalMcg(v);
-			const remainingMcg = totalMcg != null ? Math.max(0, totalMcg - (consumedByVial.get(v.id) ?? 0)) : null;
-			const days = proto && proto.doseMcg > 0 && remainingMcg != null ? daysOfSupply(remainingMcg, proto.doseMcg) : null;
-			return {
-				peptideName: nameOf(v.peptideId),
-				form: v.form,
-				expiresAt: v.expiresAt ?? null,
-				estimatedDaysRemaining: days != null && Number.isFinite(days) ? days : null
-			};
-		});
-
-	return { windowDays: WINDOW_DAYS, protocols: protocolSummaries, vials: vialSummaries };
+async function peptideLevels(userId: number) {
+	const ctx = await loadPeptideContext(userId);
+	const now = new Date();
+	const levels = activeLevelRows(ctx, now).map((l) => {
+		const series = levelDoses(ctx.intake, l.peptideId, l.route);
+		const daily = [];
+		for (let i = 13; i >= 0; i--) {
+			const date = shiftIsoDate(ctx.today, -i);
+			daily.push({ date, estimatedMcgAtNoon: Math.round(activeAmountMcg(series, l.halfLifeHours, new Date(`${date}T12:00:00`)) * 10) / 10 });
+		}
+		return {
+			compound: l.peptideName,
+			route: l.route ? ROUTE_LABELS[l.route] : null,
+			halfLife: formatHalfLife(l.halfLifeHours),
+			estimatedNow: formatLevel(l.activeMcg),
+			estimatedNowMcg: Math.round(l.activeMcg * 10) / 10,
+			lastDoseDate: l.lastDoseDate,
+			includesBlendDoses: l.viaBlend,
+			daily
+		};
+	});
+	return {
+		today: ctx.today,
+		model: 'single-compartment exponential decay from each logged dose (anchored at noon on its date) using the reference half-life; ignores absorption/distribution — a ballpark',
+		compoundsWithoutHalfLife: ctx.peptides.filter((p) => p.halfLifeHours == null && !p.isBlend && p.doseCount > 0).map((p) => p.name),
+		levels
+	};
 }
 
 function clampInt(value: unknown, fallback: number, min: number, max: number): number {

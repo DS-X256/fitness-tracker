@@ -155,6 +155,11 @@
 			disabled={!data.aiInsightsEnabled}
 			disabledMessage="Turn on AI adherence insights above to generate a summary."
 			extra={aiToggle}
+			stale={data.insightStale}
+			followUp={{
+				href: `/assistant?q=${encodeURIComponent('Looking at my peptide log for the last 30 days — how am I doing, and is there anything I should pay attention to?')}`,
+				label: 'Ask the coach about this'
+			}}
 		/>
 
 		<!-- Recent history -->
