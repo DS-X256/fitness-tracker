@@ -16,7 +16,9 @@
 		buttonLabel = 'Generate insight',
 		disabled = false,
 		disabledMessage,
-		extra
+		extra,
+		stale = false,
+		followUp
 	}: {
 		title: string;
 		/** One-line disclosure of what leaves the server when the button is pressed. */
@@ -36,6 +38,11 @@
 		disabledMessage?: string;
 		/** Extra content rendered above the generate control (e.g. an opt-in toggle). */
 		extra?: Snippet;
+		/** The data behind the shown insight has changed since it was generated (e.g. a dose was logged).
+		 *  Server-derived, so it clears itself after a regenerate reloads the page data. */
+		stale?: boolean;
+		/** A "take it further" link under the insight, e.g. into the AI Coach with a prefilled question. */
+		followUp?: { href: string; label: string };
 	} = $props();
 
 	// Seeded from the initial load; owned locally once the form's own enhance callback resolves — same
@@ -72,14 +79,21 @@
 		<p class="text-sm text-[var(--color-text-muted)]">{disabledMessage}</p>
 	{:else}
 		{#if current}
-			<p class="text-sm text-[var(--color-text)] whitespace-pre-line">{current.content}</p>
-			<p class="text-xs text-[var(--color-text-muted)]">Generated {relativeTime(current.generatedAt)}</p>
+			<p class="text-sm text-[var(--color-text)] whitespace-pre-line {stale ? 'opacity-60' : ''}">{current.content}</p>
+			<p class="text-xs {stale ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-muted)]'}">
+				Generated {relativeTime(current.generatedAt)}{#if stale}{' · '}out of date — your log has changed since{/if}
+			</p>
+			{#if followUp}
+				<a href={followUp.href} class="inline-flex items-center gap-1 text-sm font-medium text-[var(--color-accent)]">
+					{followUp.label} <Icon name="chevron-right" size={15} />
+				</a>
+			{/if}
 		{/if}
 
 		{#if error}
 			<p class="text-xs text-[var(--color-danger)]">{error}</p>
 		{:else if onCooldown}
-			<p class="text-xs text-[var(--color-text-muted)]">Already up to date — try again in a few minutes.</p>
+			<p class="text-xs text-[var(--color-text-muted)]">Already up to date — nothing new to summarize yet.</p>
 		{/if}
 
 		<form
@@ -105,7 +119,7 @@
 		>
 			<Button type="submit" variant="secondary" size="md" disabled={loading}>
 				<Icon name="sparkles" size={16} />
-				{loading ? 'Generating…' : current ? 'Regenerate' : buttonLabel}
+				{loading ? 'Generating…' : current ? (stale ? 'Update' : 'Regenerate') : buttonLabel}
 			</Button>
 			<p class="mt-1.5 text-[0.6875rem] text-[var(--color-text-muted)]">{disclosure}</p>
 		</form>

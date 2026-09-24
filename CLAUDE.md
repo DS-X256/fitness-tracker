@@ -93,6 +93,21 @@ sharing/ownership pattern:
   peptide (or general, if unset) — same whole-file `photoCrypto` encryption, own `storage/peptidePhotos`
   + owner-checked serve route (`routes/peptides/photos/[id]/file`), reusing `photoCrypto` as-is rather
   than adding a peptide-specific variant.
+  - **Blends** (KLOW, GLOW, CJC/Ipa…) are compounds with `isBlend` + `components` (label mg and/or %,
+    each linked by `peptideId` to its own compound — `linkComponents` matches by name or creates it; nested
+    blends are rejected). A protocol may override the mix. Every blend dose **snapshots its split** into the
+    dose's `enc.components` at log time (protocol mix → blend default), so ratio edits never rewrite
+    history; rows without the key predate snapshots and are split by the current ratio, flagged `estimated`.
+  - **One engine, many consumers.** Screens and AI must not recompute peptide numbers ad hoc: load once with
+    `$lib/server/peptideContext` (`loadPeptideContext` → dose→protocol assignment, blend-expanded intake,
+    `vialStatus`), render via `$lib/server/peptideViews`, and use the pure utils — `peptideAdherence`
+    (scheduled/taken/skipped/missed/pending, incl. N-per-day, every-N-days, x_per_week), `peptideSupply`
+    (`projectRunout`, schedule-aware — never "remaining ÷ one dose = days"), `peptideIntake` (per compound
+    **per route** — never sum mcg across routes). The AI reads the same data through
+    `$lib/server/ai/peptideFacts` (`buildPeptideFacts`); the dashboard recap is cached by a fingerprint of
+    those facts, so it goes stale the moment the log changes. `/peptides/[id=integer]` is the per-compound hub.
+  - Dose `kind` is `dose | prime | remove | skip`; only `dose` is intake/"taken", `skip` counts as skipped
+    (not missed), prime/remove/skip never count toward adherence. Doses also carry `effects` (side-effect tags).
 
 `products` (user-owned) and `catalogProducts` (shared global product catalog, seeded from Open
 Food Facts data — see `presetData.ts`/`presets.ts`/`catalogData.json`) are distinct tables;
@@ -122,6 +137,10 @@ username/password rules. Other input validation happens inline in the relevant
 the community-scripts.org Proxmox VE Helper-Scripts framework, since this repo isn't in their
 catalog. It's meant to be run on a Proxmox host to provision an LXC, install Docker, and deploy
 the app — see the script's own header comments for `REPO_URL`/`APP_DIR`/`APP_PORT` overrides.
+
+`TZ` (docker-compose/.env) sets the server's notion of "today" for every date-keyed feature — the container
+otherwise runs on UTC. Optional AI settings: `ANTHROPIC_API_KEY`, `AI_MODEL_COACH` / `AI_MODEL_PEPTIDE_SUMMARY`
+(default `claude-opus-5`), `AI_WEB_SEARCH` (Coach web search, default on), `AI_DAILY_LIMIT_PER_USER`.
 
 The app is explicitly designed for a trusted private network (Tailscale/LAN/VPN) — signup has
 no invite codes, email verification, or rate limiting. Don't add internet-facing hardening

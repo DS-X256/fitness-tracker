@@ -4,18 +4,25 @@
 
 import { isValidIsoDate, shiftIsoDate } from './isoDate';
 
-export type Frequency = 'daily' | 'eod' | 'weekly' | 'x_per_week';
+export type Frequency = 'daily' | 'eod' | 'every_n_days' | 'weekly' | 'x_per_week';
 
 export const FREQUENCY_LABELS: Record<Frequency, string> = {
 	daily: 'Every day',
 	eod: 'Every other day',
+	every_n_days: 'Every N days',
 	weekly: 'Specific weekdays',
 	x_per_week: 'Times per week (flexible)'
 };
 
 export function isFrequency(v: unknown): v is Frequency {
-	return v === 'daily' || v === 'eod' || v === 'weekly' || v === 'x_per_week';
+	return v === 'daily' || v === 'eod' || v === 'every_n_days' || v === 'weekly' || v === 'x_per_week';
 }
+
+/** Upper bound on doses in one scheduled day (e.g. BPC-157 or CJC/Ipamorelin split AM/PM). */
+export const MAX_TIMES_PER_DAY = 4;
+/** Bounds for 'every_n_days' — 2 is the same as 'eod', 30 is "monthly-ish". */
+export const MIN_INTERVAL_DAYS = 2;
+export const MAX_INTERVAL_DAYS = 30;
 
 export type ProtocolSchedule = {
 	frequency: Frequency;
@@ -27,6 +34,10 @@ export type ProtocolSchedule = {
 	endDate?: string | null;
 	cycleWeeksOn?: number | null;
 	cycleWeeksOff?: number | null;
+	/** Days between doses when frequency = 'every_n_days' (anchored to startDate). */
+	intervalDays?: number | null;
+	/** Doses per scheduled day (1-4). Absent/null means 1 — every protocol written before this existed. */
+	timesPerDay?: number | null;
 };
 
 /** An optional higher/lower front-loaded stretch at the start of a protocol (e.g. a heavier dose for
@@ -105,24 +116,68 @@ export function cycleState(s: ProtocolSchedule, date: string): CycleState {
 	};
 }
 
-/** Is a dose scheduled on `date` under this protocol? (Whether it was actually logged is separate.)
- *  'x_per_week' is a flexible weekly target, not a specific-day schedule, so it's never a hard "due". */
-export function isDueOn(s: ProtocolSchedule, date: string): boolean {
+/** Doses per scheduled day, clamped to 1..MAX_TIMES_PER_DAY (legacy protocols have none set → 1). */
+export function timesPerDayOf(s: Pick<ProtocolSchedule, 'timesPerDay'>): number {
+	const n = s.timesPerDay ?? 1;
+	return Number.isInteger(n) && n >= 1 ? Math.min(n, MAX_TIMES_PER_DAY) : 1;
+}
+
+/** Is `date` inside the protocol's active span — on/after startDate, on/before endDate, and not in a
+ *  cycle's off-phase? The frequency-independent half of "is anything scheduled today". */
+export function isWithinActiveSpan(s: ProtocolSchedule, date: string): boolean {
 	if (!isValidIsoDate(date)) return false;
 	if (date < s.startDate) return false;
 	if (s.endDate && date > s.endDate) return false;
-	if (cycleState(s, date).phase === 'off') return false;
+	return cycleState(s, date).phase !== 'off';
+}
+
+/** How many doses are scheduled on `date` (0 = rest day). 'x_per_week' is a flexible weekly target, not a
+ *  specific-day schedule, so it never has fixed slots — see peptideAdherence.ts for how it's scored.
+ *  'every_n_days' and 'eod' are anchored to startDate, so a missed day doesn't shift the rhythm. */
+export function slotsOn(s: ProtocolSchedule, date: string): number {
+	if (!isWithinActiveSpan(s, date)) return 0;
+	const perDay = timesPerDayOf(s);
 	switch (s.frequency) {
 		case 'daily':
-			return true;
+			return perDay;
 		case 'eod':
-			return daysBetween(s.startDate, date) % 2 === 0;
+			return daysBetween(s.startDate, date) % 2 === 0 ? perDay : 0;
+		case 'every_n_days': {
+			const n = Math.max(MIN_INTERVAL_DAYS, s.intervalDays ?? MIN_INTERVAL_DAYS);
+			return daysBetween(s.startDate, date) % n === 0 ? perDay : 0;
+		}
 		case 'weekly':
-			return ((s.weekdayMask ?? 0) & (1 << weekdayOf(date))) !== 0;
+			return ((s.weekdayMask ?? 0) & (1 << weekdayOf(date))) !== 0 ? perDay : 0;
 		case 'x_per_week':
-			return false;
+			return 0;
 		default:
-			return false;
+			return 0;
+	}
+}
+
+/** Is a dose scheduled on `date` under this protocol? (Whether it was actually logged is separate.)
+ *  'x_per_week' is a flexible weekly target, not a specific-day schedule, so it's never a hard "due". */
+export function isDueOn(s: ProtocolSchedule, date: string): boolean {
+	return slotsOn(s, date) > 0;
+}
+
+/** Short human description of a schedule: "2× daily", "Every 3 days", "Mo, We, Fr", "3× per week". */
+export function scheduleLabel(s: ProtocolSchedule): string {
+	const perDay = timesPerDayOf(s);
+	const suffix = perDay > 1 ? ` · ${perDay}× a day` : '';
+	switch (s.frequency) {
+		case 'daily':
+			return perDay > 1 ? `${perDay}× daily` : 'Every day';
+		case 'eod':
+			return `Every other day${suffix}`;
+		case 'every_n_days':
+			return `Every ${Math.max(MIN_INTERVAL_DAYS, s.intervalDays ?? MIN_INTERVAL_DAYS)} days${suffix}`;
+		case 'weekly':
+			return `${weekdayMaskLabel(s.weekdayMask)}${suffix}`;
+		case 'x_per_week':
+			return `${s.perWeek ?? 0}× per week`;
+		default:
+			return '—';
 	}
 }
 
@@ -183,6 +238,66 @@ export function effectiveDoseMcg(
 	return maintenanceDoseMcg;
 }
 
+/** The dose-shaping fields of a protocol — enough to know what it asks for on any date. Flat, matching
+ *  the repository's Protocol type, so a decoded protocol can be passed straight in. */
+export type ProtocolDoseFields = {
+	doseMcg: number;
+	startDate: string;
+	loadingDoseMcg?: number | null;
+	loadingDurationDays?: number | null;
+	taperDoseMcg?: number | null;
+	taperAfterDays?: number | null;
+};
+
+export function loadingOf(p: ProtocolDoseFields): LoadingPhase | null {
+	return p.loadingDoseMcg != null && p.loadingDurationDays != null
+		? { doseMcg: p.loadingDoseMcg, durationDays: p.loadingDurationDays }
+		: null;
+}
+
+export function taperOf(p: ProtocolDoseFields): TaperPhase | null {
+	return p.taperDoseMcg != null && p.taperAfterDays != null ? { doseMcg: p.taperDoseMcg, afterDays: p.taperAfterDays } : null;
+}
+
+/** The per-dose target on `date`, honouring loading and taper phases. This — not the protocol's base
+ *  doseMcg — is what a logged dose on that date should be compared against. */
+export function targetDoseOn(p: ProtocolDoseFields, date: string): number {
+	return effectiveDoseMcg(p.doseMcg, p.startDate, loadingOf(p), date, taperOf(p));
+}
+
+export type DosePhase = 'loading' | 'regular' | 'taper';
+
+export function phaseOn(p: ProtocolDoseFields, date: string): DosePhase {
+	if (isLoadingPhaseOn(p.startDate, loadingOf(p), date)) return 'loading';
+	if (isTaperPhaseOn(p.startDate, loadingOf(p), taperOf(p), date)) return 'taper';
+	return 'regular';
+}
+
+export type UpcomingChange = {
+	date: string;
+	kind: 'loading_ends' | 'taper_starts' | 'cycle_off' | 'cycle_on' | 'ends';
+	/** The per-dose target from that date on, when the change affects it. */
+	doseMcg: number | null;
+};
+
+/** Schedule/dose changes coming up within `horizonDays` of `today` (exclusive of today), oldest first —
+ *  "loading ends Thu, then 250 mcg", "cycle break starts in 5 days". Powers the hub timeline and the AI. */
+export function upcomingChanges(p: ProtocolSchedule & ProtocolDoseFields, today: string, horizonDays = 60): UpcomingChange[] {
+	const out: UpcomingChange[] = [];
+	const horizon = shiftIsoDate(today, horizonDays);
+	const inWindow = (d: string | null) => d != null && d > today && d <= horizon && (!p.endDate || d <= shiftIsoDate(p.endDate, 1));
+	const loadEnd = loadingEndDate(p.startDate, loadingOf(p));
+	if (inWindow(loadEnd)) out.push({ date: loadEnd!, kind: 'loading_ends', doseMcg: targetDoseOn(p, loadEnd!) });
+	const taperStart = taperStartDate(p.startDate, loadingOf(p), taperOf(p));
+	if (inWindow(taperStart)) out.push({ date: taperStart!, kind: 'taper_starts', doseMcg: taperOf(p)!.doseMcg });
+	const cyc = cycleState(p, today);
+	if (cyc.nextTransition && inWindow(cyc.nextTransition)) {
+		out.push({ date: cyc.nextTransition, kind: cyc.phase === 'on' ? 'cycle_off' : 'cycle_on', doseMcg: null });
+	}
+	if (p.endDate && p.endDate >= today && p.endDate <= horizon) out.push({ date: p.endDate, kind: 'ends', doseMcg: null });
+	return out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+}
+
 /** The first date on or after `fromIso` with a dose scheduled, or null when there's none inside
  *  `horizonDays`. Null is also the honest answer for 'x_per_week', which sets a weekly target rather
  *  than specific days — isDueOn never fires for it, so there is no next date to count down to. */
@@ -204,8 +319,6 @@ export function scheduledCount(s: ProtocolSchedule, fromIso: string, toIso: stri
 		return Math.round(weeks * (s.perWeek ?? 0));
 	}
 	let count = 0;
-	for (let i = 0; i <= span; i++) {
-		if (isDueOn(s, shiftIsoDate(fromIso, i))) count++;
-	}
+	for (let i = 0; i <= span; i++) count += slotsOn(s, shiftIsoDate(fromIso, i));
 	return count;
 }

@@ -20,10 +20,10 @@
 	] as const;
 
 	// Null means "no explicit pick yet" — `compound` below falls back to the first one.
-	let selectedId = $state<number | null>(null);
+	let selectedKey = $state<string | null>(null);
 	let range = $state<(typeof RANGES)[number]['value']>('month');
 
-	const compound = $derived(data.compounds.find((c) => c.id === selectedId) ?? data.compounds[0] ?? null);
+	const compound = $derived(data.compounds.find((c) => c.key === selectedKey) ?? data.compounds[0] ?? null);
 
 	const fromMs = $derived.by(() => {
 		if (!compound) return 0;
@@ -83,8 +83,8 @@
 	{:else}
 		{#if data.compounds.length > 1}
 			<div class="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
-				{#each data.compounds as c (c.id)}
-					<Chip selected={c.id === compound.id} onclick={() => (selectedId = c.id)}>{c.name}</Chip>
+				{#each data.compounds as c (c.key)}
+					<Chip selected={c.key === compound.key} onclick={() => (selectedKey = c.key)}>{c.name}</Chip>
 				{/each}
 			</div>
 		{/if}
@@ -109,10 +109,11 @@
 			</Card>
 			<p class="mt-2 px-1 text-xs leading-relaxed text-[var(--color-text-muted)]">
 				Decayed from each logged dose at a {formatHalfLife(compound.halfLifeHours)} half-life{#if compound.lastDoseDate}, most recently
-					{fmtDate(compound.lastDoseDate)}{/if}. A rough single-compartment estimate — not a real PK model, and
+					{fmtDate(compound.lastDoseDate)}{/if}{#if compound.viaBlend}, including what arrived via blends{/if}. A rough single-compartment estimate — not a real PK model, and
 				not dosing guidance. Adjust the half-life under
 				<a href="/peptides/manage" class="text-[var(--color-accent)]">manage</a>.
-			</p>
+			
+					<a href={`/peptides/${compound.id}`} class="text-[var(--color-accent)] font-medium">Open {compound.name}</a></p>
 		</div>
 
 		{#if compound.nextDue || compound.flexibleSchedule}

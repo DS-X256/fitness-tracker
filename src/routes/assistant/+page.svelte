@@ -5,6 +5,7 @@
 	import Card from '$lib/components/Card.svelte';
 	import Button from '$lib/components/Button.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import ChatText from '$lib/components/ai/ChatText.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -62,8 +63,8 @@
 	const SUGGESTIONS = [
 		'How has my training volume looked this week?',
 		'Am I hitting my protein target?',
-		'Is my weight trending toward my goal?',
-		'Are my logged peptide doses matching my protocol?'
+		'What does the evidence actually say about the peptides I’m taking?',
+		'Looking at my dose log and side effects, what might be going on?'
 	];
 
 	function isNearBottom(): boolean {
@@ -152,8 +153,13 @@
 		}
 	}
 
-	// Open on the latest message, like any chat.
-	onMount(() => scrollToBottom(true));
+	// Open on the latest message, like any chat. A `?q=` link (e.g. "Ask the coach about this" on the
+	// peptide recap) prefills the box — never auto-sends, so the user can edit before spending a request.
+	onMount(() => {
+		const q = new URL(window.location.href).searchParams.get('q');
+		if (q && !input) input = q.slice(0, 2000);
+		scrollToBottom(true);
+	});
 
 	function onKeydown(e: KeyboardEvent) {
 		if (e.key === 'Enter' && !e.shiftKey) {
@@ -220,10 +226,11 @@
 			</p>
 			<p class="mt-2 text-[0.6875rem] leading-relaxed text-[var(--color-text-muted)]">
 				When enabled, the data a question touches — meals, workouts, body metrics, and peptide logs (compound names,
-				doses, schedules) — is sent to Anthropic's Claude API to generate answers. Questions about a specific peptide
-				may also trigger a live lookup against NCBI/PubMed and ClinicalTrials.gov's public databases — only the
-				compound name is sent to those, never your doses, schedule, or any other personal data. Off by default.
-				Peptide guidance is educational only, not medical advice — discuss any protocol with a qualified clinician.
+				doses, schedules, and for dose-level questions your dose notes and side-effect check-ins) — is sent to
+				Anthropic's Claude API to generate answers. Evidence questions can trigger live lookups against NCBI/PubMed and
+				ClinicalTrials.gov, and web searches run by Anthropic — those only ever carry search terms like a compound
+				name, never your doses, schedule, or other personal data. Off by default. The coach reasons and gives labelled
+				estimates from evidence; it's not medical advice — involve a clinician for medical decisions.
 			</p>
 			<form method="POST" action="?/toggleAssistant" use:enhance class="mt-3">
 				<input type="hidden" name="enabled" value="true" />
@@ -269,7 +276,7 @@
 				{:else}
 					<div class="flex flex-col items-start gap-1">
 						<div class="max-w-[90%] rounded-[var(--radius-lg)] bg-[var(--color-surface)] border border-[var(--color-border)] px-3.5 py-2 text-[15px] text-[var(--color-text)] whitespace-pre-line">
-							{msg.content}
+							<ChatText text={msg.content} />
 						</div>
 						<div class="flex items-center gap-2 px-1">
 							<button
@@ -291,7 +298,7 @@
 			{#if streaming}
 				<div class="flex justify-start">
 					<div class="max-w-[90%] rounded-[var(--radius-lg)] bg-[var(--color-surface)] border border-[var(--color-border)] px-3.5 py-2 text-[15px] text-[var(--color-text)] whitespace-pre-line">
-						{#if liveText}{liveText}{:else if toolStatus}<span class="text-[var(--color-text-muted)]">{toolStatus}</span>{:else}<span class="text-[var(--color-text-muted)]">Thinking…</span>{/if}
+						{#if liveText}<ChatText text={liveText} />{/if}{#if toolStatus}<span class="{liveText ? 'mt-1.5 ' : ''}block text-[var(--color-text-muted)]">{toolStatus}</span>{:else if !liveText}<span class="text-[var(--color-text-muted)]">Thinking…</span>{/if}
 					</div>
 				</div>
 			{/if}
@@ -315,7 +322,7 @@
 				</Button>
 			</div>
 			<p class="mt-1.5 text-[0.625rem] leading-relaxed text-[var(--color-text-muted)]">
-				Educational only, grounded in your logged data — not medical advice.
+				Reasoned from your data and the literature, with estimates labelled — not medical advice.
 			</p>
 		</div>
 	</div>

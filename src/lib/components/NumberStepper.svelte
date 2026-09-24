@@ -16,6 +16,13 @@
 	// clicks, never while the user is typing, so it never fights their in-progress input.
 	let text = $state(String(value));
 
+	// Resync the visible text when `value` is written from OUTSIDE (e.g. a modal reopening on a different
+	// dose) — same approach as NumberField: only a disagreement between `value` and the parse of the
+	// current text means an external write, so a mid-edit "1," is never clobbered back to "1".
+	$effect(() => {
+		if (!Object.is(value, parseDecimal(text))) text = String(value);
+	});
+
 	function round(n: number) {
 		return Math.round(n * 1000) / 1000;
 	}

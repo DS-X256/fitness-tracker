@@ -2,6 +2,7 @@ import { db } from '$lib/server/db';
 import { peptideVials, peptideDoses } from '$lib/server/db/schema';
 import { and, asc, eq, sql } from 'drizzle-orm';
 import { decryptJson, encryptJson } from '$lib/server/crypto/fieldCrypto';
+import { assertPeptideOwned } from './peptideRefs';
 import { isValidIsoDate } from '$lib/utils/isoDate';
 import { isContainerForm, type ContainerForm } from '$lib/utils/peptides';
 
@@ -177,6 +178,7 @@ export async function getVial(userId: number, id: number): Promise<Vial | null> 
 
 export async function createVial(userId: number, input: VialInput): Promise<Vial> {
 	const data = sanitize(input);
+	await assertPeptideOwned(userId, input.peptideId);
 	const [row] = await db
 		.insert(peptideVials)
 		.values({ userId, peptideId: input.peptideId, enc: encryptJson(data, aad(userId)), createdAt: new Date() })
@@ -188,6 +190,7 @@ export async function createVial(userId: number, input: VialInput): Promise<Vial
  *  update path, only create/deplete/delete. */
 export async function updateVial(userId: number, id: number, input: VialInput): Promise<Vial> {
 	const data = sanitize(input);
+	await assertPeptideOwned(userId, input.peptideId);
 	const [row] = await db
 		.update(peptideVials)
 		.set({ peptideId: input.peptideId, enc: encryptJson(data, aad(userId)) })

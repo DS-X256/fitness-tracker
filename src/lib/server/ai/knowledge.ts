@@ -6,7 +6,8 @@
 //  - Everything here is general scientific consensus, not personalized medical advice.
 //  - The few named references are real, widely-cited papers. The model is instructed NOT to invent
 //    citations, authors, journals, or statistics beyond what's stated here.
-//  - Peptide content is educational; actual dosing and any medical concern is deferred to a clinician.
+//  - Peptide content is educational — the Coach may reason and estimate from it (labelled as such), but
+//    it is not a prescription; genuinely medical concerns are pointed to a clinician.
 
 export const COACH_KNOWLEDGE = `# Reference knowledge (general scientific consensus — not personalized medical advice)
 
@@ -31,17 +32,28 @@ export const COACH_KNOWLEDGE = `# Reference knowledge (general scientific consen
 - Sleep (~7-9 h) and stress management materially affect recovery, performance, and body composition.
 
 ## Peptides — pharmacology & harm reduction (educational, not a prescription)
-Framing: several of these are prescription medicines and others are research chemicals whose human evidence is limited or purely preclinical. Present this as education. Defer any decision to start, stop, or change a dose or compound — and anything about side effects, symptoms, interactions, or bloodwork — to a qualified healthcare professional. Never encourage escalating dose or stacking.
+Framing: several of these are prescription medicines and others are research chemicals whose human evidence is limited or purely preclinical. Present this as education for someone making their own decisions: reason from it, estimate where evidence is thin (labelled as estimates), and be candid about risk. Point to a clinician or bloodwork when it's genuinely warranted rather than by reflex. Never encourage escalating dose or stacking.
 
 - GLP-1 receptor agonists — semaglutide (GLP-1), tirzepatide (GIP/GLP-1 dual agonist), retatrutide (triple agonist, investigational), liraglutide: incretin mimetics that increase satiety, slow gastric emptying, and improve glycemic control, producing weight loss. Standard practice is slow dose titration to limit gastrointestinal side effects (nausea, vomiting, constipation). Rapid weight loss can cause substantial lean-mass loss — resistance training and high protein are protective. These are prescription drugs needing medical supervision; class considerations include GI effects, gallbladder issues, rare pancreatitis, and contraindication with personal/family history of medullary thyroid carcinoma or MEN2.
 - BPC-157 ("body protection compound"): a synthetic peptide studied preclinically for gut and tendon/ligament healing. Human clinical evidence is essentially absent and it is not an approved drug; long-term human safety is unknown.
 - TB-500 (a thymosin β4 fragment): investigated in animals for tissue repair and angiogenesis; not approved, with limited human safety data.
 - Growth-hormone secretagogues — GHRH analogs (sermorelin, tesamorelin, CJC-1295) and ghrelin-mimetics/GHRPs (ipamorelin, GHRP-2/6): stimulate the body's own pulsatile GH/IGF-1 release rather than injecting GH. Tesamorelin is FDA-approved for HIV-associated lipodystrophy. Possible effects: water retention, joint aches, reduced insulin sensitivity, injection-site reactions; caution around IGF-1 elevation.
-- GHK-Cu (copper tripeptide): skin, wound-healing, and cosmetic research; usually topical.
+- GHK-Cu (copper tripeptide): skin, wound-healing, and cosmetic research; used topically and, in the research-peptide world, by subcutaneous injection (human injection data is minimal). Very short plasma half-life.
 - KPV: an α-MSH fragment studied preclinically for anti-inflammatory and gut effects.
 - PT-141 (bremelanotide): a melanocortin agonist, FDA-approved (Vyleesi) for hypoactive sexual desire disorder in premenopausal women; side effects include nausea, flushing, and transient blood-pressure increases.
 - Melanotan I/II: melanocortin agonists that darken skin; MT-II also affects appetite and libido. Unregulated, with notable safety concerns (nausea, blood-pressure effects, changes to moles/melanocytes).
 - AOD-9604: a GH fragment marketed for fat loss with weak and mixed human evidence.
+
+Common blends (vendor compositions vary — the app records the user's own mix per dose):
+- KLOW: GHK-Cu + BPC-157 + TB-500 + KPV, most often sold as 80 mg = 50 + 10 + 10 + 10 mg.
+- GLOW: GHK-Cu + BPC-157 + TB-500, most often 70 mg = 50 + 10 + 10 mg.
+- "Wolverine": BPC-157 + TB-500 (often 5 + 5 mg). CJC-1295 (no DAC) + ipamorelin: often 5 + 5 mg.
+- There is essentially no literature on blends themselves; reason from each component's evidence, and note that combining compounds makes it impossible to attribute effects or side effects to one of them.
+
+Reasoning toolkit for estimates (standard pharmacology — show the working when you use it):
+- Human-equivalent dose from animal studies by body-surface-area scaling (FDA 2005 guidance): HED (mg/kg) = animal dose (mg/kg) × (animal Km ÷ human Km), with Km ≈ 3 for mouse, 6 for rat, 12 for rabbit, 20 for dog, 37 for an adult human. E.g. 10 mcg/kg in rats ≈ 10 × 6/37 ≈ 1.6 mcg/kg in humans. It's a starting-point conversion, not proof of effect or safety in people.
+- Half-life: a steady state is reached after ~4-5 half-lives; with dosing interval τ and half-life t½, the accumulation factor ≈ 1 / (1 − 0.5^(τ/t½)). E.g. weekly semaglutide (t½ ≈ 7 days) → ≈ 2× the single-dose level at steady state; a 30-minute half-life compound dosed daily doesn't accumulate at all.
+- Effects that persist well beyond a short half-life (e.g. GH secretagogues, many healing peptides) imply downstream signalling rather than circulating drug — so "levels" matter less than the pattern and total exposure.
 
 Harm-reduction practicalities (administrative facts, not a dosing prescription):
 - Sterile technique: reconstitute with bacteriostatic water, swab the vial top and injection site, use a new sterile syringe each time, and avoid touching the needle.

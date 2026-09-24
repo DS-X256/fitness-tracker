@@ -8,6 +8,9 @@ services:
       DATABASE_URL: /data/fitness.db
       ORIGIN: ${ORIGIN}
       PORT: 3000
+      # The app's notion of "today" (dose dates, due-today, streaks) is the server's local date, and the
+      # container defaults to UTC. Set TZ in .env (e.g. Europe/Stockholm) so it matches your own day.
+      TZ: ${TZ:-UTC}
       # Encrypts progress photos at rest — see .env.example. Passed through from your .env; back it up.
       PHOTO_ENCRYPTION_KEY: ${PHOTO_ENCRYPTION_KEY}
       # adapter-node rejects request bodies over 512KB by default, which would block photo uploads
@@ -16,8 +19,13 @@ services:
       # Powers the optional AI features (workout coach, weekly digest, peptide insights) — see
       # .env.example. Passed through from your .env; leave unset to disable those features.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      # Per-user daily cap across all three AI features combined — see .env.example.
+      # Per-user daily cap across all AI features combined — see .env.example.
       AI_DAILY_LIMIT_PER_USER: ${AI_DAILY_LIMIT_PER_USER:-15}
+      # Optional AI tuning — see .env.example. Empty means "use the built-in default".
+      AI_MODEL_COACH: ${AI_MODEL_COACH:-}
+      AI_MODEL_PEPTIDE_SUMMARY: ${AI_MODEL_PEPTIDE_SUMMARY:-}
+      AI_WEB_SEARCH: ${AI_WEB_SEARCH:-}
+      NCBI_API_KEY: ${NCBI_API_KEY:-}
     volumes:
       - fitness-data:/data
 
