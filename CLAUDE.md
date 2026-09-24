@@ -143,8 +143,9 @@ catalog. It's meant to be run on a Proxmox host to provision an LXC, install Doc
 the app — see the script's own header comments for `REPO_URL`/`APP_DIR`/`APP_PORT` overrides.
 
 `TZ` (docker-compose/.env) sets the server's notion of "today" for every date-keyed feature — the container
-otherwise runs on UTC. Optional AI settings: `ANTHROPIC_API_KEY`, `AI_MODEL_COACH` / `AI_MODEL_PEPTIDE_SUMMARY`
-(default `claude-opus-5`), `AI_WEB_SEARCH` (Coach web search, default on), `AI_DAILY_LIMIT_PER_USER`.
+otherwise runs on UTC. Optional AI settings: `ANTHROPIC_API_KEY`, `AI_MODEL_COACH` (default `claude-sonnet-5`)
+/ `AI_MODEL_PEPTIDE_SUMMARY` (default `claude-opus-5`), `AI_WEB_SEARCH` (Coach web search, default on),
+`AI_DAILY_LIMIT_PER_USER`.
 
 The app is explicitly designed for a trusted private network (Tailscale/LAN/VPN) — signup has
 no invite codes, email verification, or rate limiting. Don't add internet-facing hardening

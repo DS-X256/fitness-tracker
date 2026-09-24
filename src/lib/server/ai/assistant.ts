@@ -46,6 +46,7 @@ let webSearchUnavailable = false;
 
 export type AssistantEvent =
 	| { type: 'token'; text: string }
+	| { type: 'thinking'; text: string }
 	| { type: 'tool'; label: string }
 	| { type: 'done' }
 	| { type: 'error'; message: string };
@@ -189,18 +190,20 @@ export async function runAssistantTurn(
 						system,
 						tools: tools(model),
 						messages,
-						...(isHaiku ? {} : { thinking: { type: 'adaptive' as const, display: 'omitted' as const } }),
+						...(isHaiku ? {} : { thinking: { type: 'adaptive' as const, display: 'summarized' as const } }),
 						...(supportsEffort(model) ? { output_config: { effort: 'high' as const } } : {}),
 						...(supportsRefusalFallback(model) ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const } : {})
 					},
 					{ timeout: REQUEST_TIMEOUT_MS }
 				);
 				stream.on('text', (delta) => say(delta));
+				// Summarized reasoning, streamed live so the user can follow the train of thought — never
+				// persisted (appendMessage below only saves the final answer), same as the tool-status line.
+				stream.on('thinking', (delta) => emit({ type: 'thinking', text: delta }));
 				stream.on('streamEvent', (ev) => {
 					if (ev.type !== 'content_block_start') return;
 					const b = ev.content_block;
-					if (b.type === 'thinking' || b.type === 'redacted_thinking') emit({ type: 'tool', label: 'Thinking it through…' });
-					else if (b.type === 'server_tool_use' && b.name === 'web_search') emit({ type: 'tool', label: 'Searching the web…' });
+					if (b.type === 'server_tool_use' && b.name === 'web_search') emit({ type: 'tool', label: 'Searching the web…' });
 				});
 				response = await stream.finalMessage();
 			} catch (err) {
