@@ -3,7 +3,7 @@ import { fieldEncryptionAvailable } from '$lib/server/crypto/fieldCrypto';
 import { listPeptides } from '$lib/server/repositories/peptides';
 import { getProtocol } from '$lib/server/repositories/peptideProtocols';
 import { deleteDose, logDose, recentSites, updateDose, updateDoseEffects } from '$lib/server/repositories/peptideDoses';
-import { seedPeptidesForUser } from '$lib/server/peptidePresets';
+import { seedBlendPresetsForUser, seedPeptidesForUser } from '$lib/server/peptidePresets';
 import { getSettings, updateSettings } from '$lib/server/repositories/userSettings';
 import { getCached } from '$lib/server/repositories/peptideInsights';
 import { aiAvailable } from '$lib/server/ai/client';
@@ -39,6 +39,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	// Lazily seed the starter catalog on the very first visit (empty catalog), then load everything.
 	if ((await listPeptides(userId, { includeInactive: true })).length === 0) {
 		await seedPeptidesForUser(userId);
+		await seedBlendPresetsForUser(userId);
 	}
 
 	const [ctx, siteHistory, settings] = await Promise.all([loadPeptideContext(userId), recentSites(userId, 20), getSettings(userId)]);

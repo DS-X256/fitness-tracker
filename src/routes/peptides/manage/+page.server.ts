@@ -3,7 +3,7 @@ import { fieldEncryptionAvailable } from '$lib/server/crypto/fieldCrypto';
 import { createPeptide, deletePeptide, listPeptides, setPeptideActive, updatePeptide } from '$lib/server/repositories/peptides';
 import { createProtocol, deleteProtocol, listProtocols, setProtocolActive, updateProtocol } from '$lib/server/repositories/peptideProtocols';
 import { createVial, deleteVial, listVials, setVialDepleted, updateVial } from '$lib/server/repositories/peptideVials';
-import { seedPeptidesForUser } from '$lib/server/peptidePresets';
+import { seedBlendPresetsForUser, seedPeptidesForUser } from '$lib/server/peptidePresets';
 import { parseDecimal } from '$lib/utils/parseDecimal';
 import { isPeptideCategory, isAdminRoute, isContainerForm, type BlendComponent } from '$lib/utils/peptides';
 import { isFrequency, scheduleLabel } from '$lib/utils/peptideSchedule';
@@ -71,7 +71,8 @@ function parseComponents(form: FormData): BlendComponent[] {
 
 export const actions: Actions = {
 	seedPresets: async ({ locals }) => {
-		const added = await seedPeptidesForUser(locals.user!.id);
+		const userId = locals.user!.id;
+		const added = (await seedPeptidesForUser(userId)) + (await seedBlendPresetsForUser(userId));
 		return { success: true, added };
 	},
 
