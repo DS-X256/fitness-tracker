@@ -99,6 +99,19 @@ export const actions: Actions = {
 		}
 		return { success: true };
 	},
+	// One-tap "use the standard half-life" from the compound page / levels screen, so the level graph appears.
+	setHalfLife: async ({ request, locals }) => {
+		const form = await request.formData();
+		const id = Number(form.get('id'));
+		const hours = num(form, 'halfLifeHours');
+		if (!Number.isInteger(id) || id <= 0) return fail(400, { error: 'Invalid compound' });
+		try {
+			await updatePeptide(locals.user!.id, id, { halfLifeHours: hours });
+		} catch (e) {
+			return fail(400, { error: e instanceof Error ? e.message : 'Could not save half-life' });
+		}
+		return { success: true };
+	},
 	togglePeptide: async ({ request, locals }) => {
 		const form = await request.formData();
 		await setPeptideActive(locals.user!.id, Number(form.get('id')), form.get('active') === 'true');

@@ -31,6 +31,9 @@ type PeptideEnc = {
 	 *  in $lib/utils/peptides). Display-only reference metadata, same as vialMg — never used to compute
 	 *  a dose, only to decay logged ones. Seeded from STANDARD_HALF_LIVES_HOURS, always user-editable. */
 	halfLifeHours: number | null;
+	/** Set once the standard half-life has been offered (seeded/backfilled) or the compound was saved by the
+	 *  user — tells backfillStandardHalfLives (peptidePresets.ts) never to refill a half-life the user cleared. */
+	halfLifeSeeded?: boolean;
 };
 
 export type Peptide = {
@@ -146,7 +149,7 @@ function sanitize(input: Required<Pick<PeptideInput, 'name' | 'category' | 'vial
 		}
 		halfLifeHours = Math.round(input.halfLifeHours * 100) / 100;
 	}
-	return { name, category, vialMg, notes, components, halfLifeHours };
+	return { name, category, vialMg, notes, components, halfLifeHours, halfLifeSeeded: true };
 }
 
 export async function listPeptides(
@@ -221,7 +224,8 @@ export async function linkComponents(
 				vialMg: null,
 				notes: null,
 				components: null,
-				halfLifeHours: suggestHalfLifeHours(c.name)
+				halfLifeHours: suggestHalfLifeHours(c.name),
+				halfLifeSeeded: true
 			};
 			const [row] = await db
 				.insert(peptides)

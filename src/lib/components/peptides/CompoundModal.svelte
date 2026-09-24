@@ -53,6 +53,7 @@
 		notes = compound?.notes ?? '';
 		isBlend = compound?.isBlend ?? false;
 		halfLifeHours = compound?.halfLifeHours ?? null;
+		autoFilled = null;
 		editorInitial = compound?.components ?? [];
 		editorKey++;
 		error = '';
@@ -65,6 +66,19 @@
 	}
 
 	const suggestedHalfLife = $derived(isBlend ? null : suggestHalfLifeHours(name));
+
+	/** Adding a new compound with a known name fills its standard half-life (so its "active in body" graph
+	 *  just works) — but only while the field holds nothing or the previous auto-fill, never over a value
+	 *  the user typed. Editing an existing compound keeps the explicit "Use it" hint instead. */
+	let autoFilled: number | null = null;
+	function onNameInput(e: Event) {
+		if (compound || isBlend) return;
+		if (halfLifeHours != null && halfLifeHours !== autoFilled) return;
+		// Read the typed value directly — don't depend on bind:value having updated `name` first.
+		const suggestion = suggestHalfLifeHours((e.currentTarget as HTMLInputElement).value);
+		halfLifeHours = suggestion;
+		autoFilled = suggestion;
+	}
 	const inputClass =
 		'w-full h-11 px-3.5 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]';
 </script>
@@ -83,7 +97,15 @@
 		<input type="hidden" name="id" value={compound?.id ?? ''} />
 		<div>
 			<label for="p-name" class="block text-sm font-medium text-[var(--color-text)] mb-1.5">Name</label>
-			<input id="p-name" name="name" bind:value={name} required placeholder={isBlend ? 'e.g. KLOW' : 'e.g. BPC-157'} class={inputClass} />
+			<input
+				id="p-name"
+				name="name"
+				bind:value={name}
+				oninput={onNameInput}
+				required
+				placeholder={isBlend ? 'e.g. KLOW' : 'e.g. BPC-157'}
+				class={inputClass}
+			/>
 		</div>
 		<div class="grid grid-cols-2 gap-3">
 			<div>

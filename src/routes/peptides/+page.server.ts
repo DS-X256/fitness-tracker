@@ -59,6 +59,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	return {
 		encryptionReady: true as const,
 		today: ctx.today,
+		nowMs: Date.now(),
 		hasCompounds: ctx.peptides.some((p) => p.active),
 		due: dueRows(ctx),
 		adherence: adherenceSummary(ctx),

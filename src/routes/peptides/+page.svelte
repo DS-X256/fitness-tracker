@@ -10,6 +10,7 @@
 	import DueTodayCard from '$lib/components/peptides/DueTodayCard.svelte';
 	import DoseHistoryList from '$lib/components/peptides/DoseHistoryList.svelte';
 	import SupplyAlerts from '$lib/components/peptides/SupplyAlerts.svelte';
+	import LevelSparkline from '$lib/components/peptides/LevelSparkline.svelte';
 	import AiInsightCard from '$lib/components/ai/AiInsightCard.svelte';
 	import { formatHalfLife, formatLevel, ROUTE_LABELS } from '$lib/utils/peptides';
 	import type { PageData } from './$types';
@@ -48,6 +49,14 @@
 			class="h-9 w-9 flex items-center justify-center rounded-full text-[var(--color-text-muted)] hover:bg-[var(--color-surface-alt)]"
 		>
 			<Icon name="camera" size={18} />
+		</a>
+		<a
+			href="/peptides/levels"
+			aria-label="Estimated levels in the body"
+			title="Estimated levels"
+			class="h-9 w-9 flex items-center justify-center rounded-full text-[var(--color-text-muted)] hover:bg-[var(--color-surface-alt)]"
+		>
+			<Icon name="chart" size={18} />
 		</a>
 		<a
 			href="/peptides/manage"
@@ -113,13 +122,14 @@
 						<a href={`/peptides/${a.peptideId}`} class="flex items-center gap-3 px-4 py-3">
 							<div class="flex-1 min-w-0">
 								<p class="text-sm font-medium text-[var(--color-text)] truncate">
-									{a.peptideName}{#if a.route}<span class="text-[var(--color-text-muted)] font-normal"> · {ROUTE_LABELS[a.route]}</span>{/if}
+									{a.peptideName}{#if a.route}<span class="text-[var(--color-text-muted)] font-normal">{' · '}{ROUTE_LABELS[a.route]}</span>{/if}
 								</p>
 								<p class="text-xs text-[var(--color-text-muted)] tabular-nums">
 									~{formatHalfLife(a.halfLifeHours)} half-life{#if a.lastDoseDate}{' · '}last {fmtDate(a.lastDoseDate)}{/if}{#if a.viaBlend}{' · '}incl. blends{/if}
 								</p>
 							</div>
-							<span class="text-sm font-semibold text-[var(--color-text)] tabular-nums">{formatLevel(a.activeMcg)}</span>
+							<LevelSparkline doses={a.doses} halfLifeHours={a.halfLifeHours} nowMs={data.nowMs} label={a.peptideName} />
+							<span class="w-16 shrink-0 text-right text-sm font-semibold text-[var(--color-text)] tabular-nums">{formatLevel(a.activeMcg)}</span>
 						</a>
 					{/each}
 				</Card>

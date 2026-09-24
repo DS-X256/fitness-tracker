@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { enhance } from '$app/forms';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import Card from '$lib/components/Card.svelte';
 	import Button from '$lib/components/Button.svelte';
@@ -222,6 +223,47 @@
 				</div>
 				<LevelChart points={levelPoints} fromMs={levelFrom} toMs={data.nowMs} />
 				<p class="mt-2 text-xs text-[var(--color-text-muted)]">A rough single-compartment estimate (blend doses included) — not a PK model or dosing guidance.</p>
+			</Card>
+		</div>
+	{:else}
+		<!-- No graph yet: say why instead of hiding it, and offer the fix. -->
+		<div>
+			<h2 class="section-label mb-2 px-1">Estimated level</h2>
+			<Card>
+				{#if data.compound.isBlend}
+					<p class="text-sm text-[var(--color-text-muted)]">
+						Levels are tracked per component — each {data.compound.name} dose counts toward:
+					</p>
+					<div class="mt-2 flex flex-wrap gap-1.5">
+						{#each data.compound.components ?? [] as c (c.name)}
+							{#if c.peptideId}
+								<a href={`/peptides/${c.peptideId}`} class="h-8 px-3 flex items-center rounded-full border border-[var(--color-border)] text-xs font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-alt)]">
+									{c.name} level <Icon name="chevron-right" size={14} />
+								</a>
+							{/if}
+						{/each}
+					</div>
+				{:else if data.compound.halfLifeHours == null}
+					<p class="text-sm text-[var(--color-text)]">Set a half-life to see how much {data.compound.name} is still active in your body.</p>
+					<p class="mt-1 text-xs text-[var(--color-text-muted)]">
+						The graph decays each logged dose by the compound's half-life — a rough estimate, not a PK model.
+					</p>
+					<div class="mt-3">
+						{#if data.compound.standardHalfLifeHours != null}
+							<form method="POST" action="/peptides/manage?/setHalfLife" use:enhance>
+								<input type="hidden" name="id" value={data.compound.id} />
+								<input type="hidden" name="halfLifeHours" value={data.compound.standardHalfLifeHours} />
+								<Button type="submit" variant="secondary">Use the standard ~{formatHalfLife(data.compound.standardHalfLifeHours)}</Button>
+							</form>
+						{:else}
+							<Button variant="secondary" onclick={() => (compoundOpen = true)}>Set a half-life</Button>
+						{/if}
+					</div>
+				{:else}
+					<p class="text-sm text-[var(--color-text-muted)]">
+						Log a dose and its estimated level (~{formatHalfLife(data.compound.halfLifeHours)} half-life) will be charted here.
+					</p>
+				{/if}
 			</Card>
 		</div>
 	{/if}

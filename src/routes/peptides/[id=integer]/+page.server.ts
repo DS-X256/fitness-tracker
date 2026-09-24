@@ -9,7 +9,7 @@ import { adherencePct } from '$lib/utils/peptideAdherence';
 import { intakeRoutes, intakeTotals, levelDoses } from '$lib/utils/peptideIntake';
 import { shiftIsoDate } from '$lib/utils/isoDate';
 import { nextDueDate, phaseOn, scheduleLabel, upcomingChanges } from '$lib/utils/peptideSchedule';
-import type { EffectSeverity, EffectTag } from '$lib/utils/peptides';
+import { suggestHalfLifeHours, type EffectSeverity, type EffectTag } from '$lib/utils/peptides';
 import type { PageServerLoad } from './$types';
 
 // The compound hub: one page that ties together everything about a compound — its protocols and where
@@ -116,6 +116,8 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 			components: compound.components,
 			vialMg: compound.vialMg,
 			halfLifeHours: compound.halfLifeHours,
+			/** Reference half-life to offer when none is set, so the level graph can appear in one tap. */
+			standardHalfLifeHours: compound.isBlend ? null : suggestHalfLifeHours(compound.name),
 			notes: compound.notes,
 			doseCount: compound.doseCount
 		},
