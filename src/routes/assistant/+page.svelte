@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { onMount, tick } from 'svelte';
+	import { onMount } from 'svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import Card from '$lib/components/Card.svelte';
 	import Button from '$lib/components/Button.svelte';
@@ -16,6 +16,7 @@
 	let input = $state('');
 	let streaming = $state(false);
 	let liveText = $state('');
+	let liveThinking = $state('');
 	let toolStatus = $state('');
 	let error = $state('');
 	let scrollEl = $state<HTMLElement | null>(null);
@@ -67,35 +68,57 @@
 		'Looking at my dose log and side effects, what might be going on?'
 	];
 
-	function isNearBottom(): boolean {
-		if (!scrollEl) return true;
-		return scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 80;
+	// Whether the viewport is pinned to the bottom — tracked continuously from real scroll events rather
+	// than recomputed on every streamed token, so a burst of token events (many per second) never races
+	// itself: each one used to snapshot "near bottom?", await a tick, then scroll, and with several of
+	// those in flight at once an earlier one could resolve after a later one and snap the scroll position
+	// backward — the "follows late and glitches" symptom. `autoScrolling` ignores the scroll events our
+	// own scrollTo triggers, so they don't get mistaken for the user manually scrolling up.
+	let pinnedToBottom = true;
+	let autoScrolling = false;
+	let scrollFrame = 0;
+
+	function onScroll() {
+		if (autoScrolling || !scrollEl) return;
+		pinnedToBottom = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 80;
 	}
 
-	/** Stick to the bottom as content streams in — but only if the user is already near the bottom, so
+	/** Stick to the bottom as content streams in — but only if the user is already pinned there, so
 	 *  scrolling up to re-read earlier messages isn't yanked back down. `force` overrides that (used when
-	 *  the user sends, so their own message always scrolls into view). Checks position before the DOM
-	 *  grows, then scrolls after. */
-	async function scrollToBottom(force = false) {
-		const near = isNearBottom();
-		await tick();
-		if (force || near) scrollEl?.scrollTo({ top: scrollEl.scrollHeight });
+	 *  the user sends, so their own message always scrolls into view). Coalesces to at most one scroll per
+	 *  animation frame no matter how many times it's called in between, so it always acts on the latest
+	 *  content instead of stacking up stale scrolls. */
+	function scrollToBottom(force = false) {
+		if (force) pinnedToBottom = true;
+		if (!pinnedToBottom || scrollFrame) return;
+		scrollFrame = requestAnimationFrame(() => {
+			scrollFrame = 0;
+			if (!scrollEl || !pinnedToBottom) return;
+			autoScrolling = true;
+			scrollEl.scrollTo({ top: scrollEl.scrollHeight });
+			requestAnimationFrame(() => (autoScrolling = false));
+		});
 	}
 
 	function handleEvent(ev: { type: string; text?: string; label?: string; message?: string }) {
 		if (ev.type === 'token') {
 			toolStatus = '';
+			liveThinking = '';
 			liveText += ev.text ?? '';
+		} else if (ev.type === 'thinking') {
+			liveThinking += ev.text ?? '';
 		} else if (ev.type === 'tool') {
 			toolStatus = ev.label ?? '';
 		} else if (ev.type === 'done') {
 			if (liveText.trim()) messages = [...messages, { role: 'assistant', content: liveText.trim() }];
 			liveText = '';
+			liveThinking = '';
 			toolStatus = '';
 			streaming = false;
 		} else if (ev.type === 'error') {
 			error = ev.message ?? 'The AI Coach request failed.';
 			liveText = '';
+			liveThinking = '';
 			toolStatus = '';
 			streaming = false;
 		}
@@ -109,6 +132,7 @@
 		input = '';
 		streaming = true;
 		liveText = '';
+		liveThinking = '';
 		toolStatus = '';
 		error = '';
 		scrollToBottom(true);
@@ -147,6 +171,7 @@
 			if (streaming) {
 				if (liveText.trim()) messages = [...messages, { role: 'assistant', content: liveText.trim() }];
 				liveText = '';
+				liveThinking = '';
 				toolStatus = '';
 				streaming = false;
 			}
@@ -243,7 +268,7 @@
 	</div>
 {:else}
 	<div class="mx-auto flex w-full max-w-md flex-1 flex-col min-h-0">
-		<div bind:this={scrollEl} class="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-3">
+		<div bind:this={scrollEl} onscroll={onScroll} class="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-3">
 			{#if messages.length === 0 && !streaming}
 				<div class="pt-6 space-y-4">
 					<div class="text-center space-y-1.5">
@@ -298,7 +323,10 @@
 			{#if streaming}
 				<div class="flex justify-start">
 					<div class="max-w-[90%] rounded-[var(--radius-lg)] bg-[var(--color-surface)] border border-[var(--color-border)] px-3.5 py-2 text-[15px] text-[var(--color-text)] whitespace-pre-line">
-						{#if liveText}<ChatText text={liveText} />{/if}{#if toolStatus}<span class="{liveText ? 'mt-1.5 ' : ''}block text-[var(--color-text-muted)]">{toolStatus}</span>{:else if !liveText}<span class="text-[var(--color-text-muted)]">Thinking…</span>{/if}
+						{#if liveThinking && !liveText}
+							<p class="text-[13px] italic text-[var(--color-text-muted)]">{liveThinking}</p>
+						{/if}
+						{#if liveText}<ChatText text={liveText} />{/if}{#if toolStatus}<span class="{liveText || liveThinking ? 'mt-1.5 ' : ''}block text-[var(--color-text-muted)]">{toolStatus}</span>{:else if !liveText && !liveThinking}<span class="text-[var(--color-text-muted)]">Thinking…</span>{/if}
 					</div>
 				</div>
 			{/if}
