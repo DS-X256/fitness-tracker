@@ -106,6 +106,10 @@ sharing/ownership pattern:
     **per route** — never sum mcg across routes). The AI reads the same data through
     `$lib/server/ai/peptideFacts` (`buildPeptideFacts`); the dashboard recap is cached by a fingerprint of
     those facts, so it goes stale the moment the log changes. `/peptides/[id=integer]` is the per-compound hub.
+  - Level graphs ("active in body", `/peptides/levels`, the hub chart) need a compound `halfLifeHours`. Presets
+    are seeded with the standard value from `STANDARD_HALF_LIVES_HOURS`, and `backfillStandardHalfLives`
+    (boot, `peptidePresets.ts`) fills never-touched compounds once — the `halfLifeSeeded` marker in `enc` (set on
+    every save) keeps a half-life the user cleared from being refilled.
   - Dose `kind` is `dose | prime | remove | skip`; only `dose` is intake/"taken", `skip` counts as skipped
     (not missed), prime/remove/skip never count toward adherence. Doses also carry `effects` (side-effect tags).
 

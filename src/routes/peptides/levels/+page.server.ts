@@ -6,7 +6,7 @@ import { todayIso } from '$lib/utils/todayIso';
 import { shiftIsoDate } from '$lib/utils/isoDate';
 import { nextDueDate } from '$lib/utils/peptideSchedule';
 import { intakeRoutes, levelDoses } from '$lib/utils/peptideIntake';
-import { ROUTE_LABELS } from '$lib/utils/peptides';
+import { ROUTE_LABELS, suggestHalfLifeHours } from '$lib/utils/peptides';
 import type { PageServerLoad } from './$types';
 
 // Everything the level curve needs, per compound (and per route — amounts are never summed across
@@ -18,7 +18,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const userId = locals.user!.id;
 	const today = todayIso();
 	if (!fieldEncryptionAvailable()) {
-		return { encryptionReady: false as const, today, nowMs: Date.now(), compounds: [] };
+		return { encryptionReady: false as const, today, nowMs: Date.now(), compounds: [], missingHalfLife: [] };
 	}
 
 	const ctx = await loadPeptideContext(userId, today);
@@ -63,5 +63,11 @@ export const load: PageServerLoad = async ({ locals }) => {
 		})
 		.filter((c) => c.doseCount > 0);
 
-	return { encryptionReady: true as const, today, nowMs: Date.now(), compounds };
+	// Compounds you've actually taken (directly or via a blend) that can't be charted for lack of a
+	// half-life — listed with a one-tap fix instead of silently missing from this screen.
+	const missingHalfLife = ctx.peptides
+		.filter((p) => !p.isBlend && p.halfLifeHours == null && ctx.intake.some((e) => e.peptideId === p.id))
+		.map((p) => ({ id: p.id, name: p.name, standardHalfLifeHours: suggestHalfLifeHours(p.name) }));
+
+	return { encryptionReady: true as const, today, nowMs: Date.now(), compounds, missingHalfLife };
 };

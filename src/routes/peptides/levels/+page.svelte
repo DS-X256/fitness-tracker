@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { enhance } from '$app/forms';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import Card from '$lib/components/Card.svelte';
 	import Chip from '$lib/components/Chip.svelte';
@@ -6,6 +7,7 @@
 	import StatCard from '$lib/components/StatCard.svelte';
 	import LevelChart from '$lib/components/peptides/LevelChart.svelte';
 	import { activeAmountMcg, formatHalfLife, levelParts, levelSeries } from '$lib/utils/peptides';
+	import Button from '$lib/components/Button.svelte';
 	import { daysBetween } from '$lib/utils/peptideSchedule';
 	import type { PageData } from './$types';
 
@@ -74,8 +76,7 @@
 					<p class="text-[var(--color-text)] font-medium">Nothing to estimate yet</p>
 					<p class="mt-1 text-[var(--color-text-muted)]">
 						This screen plots how much of a compound is still in your system, decaying from each dose you've
-						logged. It needs a compound with a half-life on file and at least one logged dose —
-						<a href="/peptides/manage" class="text-[var(--color-accent)]">set a half-life</a> to get started.
+						logged. It needs a compound with a half-life on file and at least one logged dose{#if data.missingHalfLife.length === 0}{' — '}<a href="/peptides/manage" class="text-[var(--color-accent)]">set a half-life</a> to get started{/if}.
 					</p>
 				</div>
 			</div>
@@ -163,5 +164,27 @@
 				</Card>
 			</div>
 		{/if}
+	{/if}
+	{#if data.encryptionReady && data.missingHalfLife.length > 0}
+		<Card>
+			<p class="text-sm font-medium text-[var(--color-text)]">Logged, but no half-life on file</p>
+			<p class="mt-0.5 text-xs text-[var(--color-text-muted)]">These can't be charted until they have one.</p>
+			<div class="mt-2 divide-y divide-[var(--color-border)]">
+				{#each data.missingHalfLife as m (m.id)}
+					<div class="flex items-center justify-between gap-3 py-2">
+						<a href={`/peptides/${m.id}`} class="text-sm text-[var(--color-text)]">{m.name}</a>
+						{#if m.standardHalfLifeHours != null}
+							<form method="POST" action="/peptides/manage?/setHalfLife" use:enhance>
+								<input type="hidden" name="id" value={m.id} />
+								<input type="hidden" name="halfLifeHours" value={m.standardHalfLifeHours} />
+								<Button type="submit" variant="secondary">Use ~{formatHalfLife(m.standardHalfLifeHours)}</Button>
+							</form>
+						{:else}
+							<a href={`/peptides/${m.id}`} class="text-sm font-medium text-[var(--color-accent)]">Set one</a>
+						{/if}
+					</div>
+				{/each}
+			</div>
+		</Card>
 	{/if}
 </div>

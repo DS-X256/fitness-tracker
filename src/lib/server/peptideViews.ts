@@ -135,6 +135,9 @@ export type ActiveLevelRow = {
 	lastDoseDate: string | null;
 	/** Some of this level came from blend doses (e.g. GHK-Cu via KLOW). */
 	viaBlend: boolean;
+	/** Doses still contributing to the level (≈ 10 half-lives back, at least 14 days) for the trend
+	 *  sparkline, oldest first — drawn client-side with levelSeries(), the same way LevelChart is. */
+	doses: { date: string; doseMcg: number }[];
 };
 
 /** "Active in body" estimates for every compound with a half-life, per route (never summed across
@@ -148,6 +151,8 @@ export function activeLevelRows(ctx: PeptideContext, now: Date = new Date()): Ac
 			const activeMcg = activeAmountMcg(series, p.halfLifeHours, now);
 			if (activeMcg <= 0.01) continue;
 			const mine = ctx.intake.filter((e) => e.peptideId === p.id && e.route === route);
+			const lookbackDays = Math.max(14, Math.ceil((p.halfLifeHours * 10) / 24));
+			const since = shiftIsoDate(ctx.today, -lookbackDays);
 			rows.push({
 				peptideId: p.id,
 				peptideName: p.name,
@@ -155,7 +160,8 @@ export function activeLevelRows(ctx: PeptideContext, now: Date = new Date()): Ac
 				activeMcg,
 				halfLifeHours: p.halfLifeHours,
 				lastDoseDate: mine.reduce<string | null>((max, e) => (max == null || e.date > max ? e.date : max), null),
-				viaBlend: mine.some((e) => e.viaBlendId != null)
+				viaBlend: mine.some((e) => e.viaBlendId != null),
+				doses: series.filter((d) => d.date >= since).reverse()
 			});
 		}
 	}

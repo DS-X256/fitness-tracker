@@ -2,11 +2,12 @@ import { db } from '$lib/server/db';
 import { peptides, users } from '$lib/server/db/schema';
 import { eq } from 'drizzle-orm';
 import { decryptJson, encryptJson, fieldEncryptionAvailable } from '$lib/server/crypto/fieldCrypto';
-import type { PeptideCategory } from '$lib/utils/peptides';
+import { suggestHalfLifeHours, type PeptideCategory } from '$lib/utils/peptides';
 
-// Starter catalog: compound NAMES + CATEGORIES only. These are identity facts to speed data entry —
-// there is deliberately no dose, schedule or usage guidance anywhere here. The user fills in vial size
-// and builds their own protocol.
+// Starter catalog: compound NAMES + CATEGORIES (+ the published reference half-life where one exists, which
+// powers the "active in body" graphs). These are identity/reference facts to speed data entry — there is
+// deliberately no dose, schedule or usage guidance anywhere here. The user fills in vial size and builds
+// their own protocol; every field stays editable.
 
 export const PRESET_PEPTIDES: { name: string; category: PeptideCategory }[] = [
 	{ name: 'Semaglutide', category: 'glp1' },
@@ -38,7 +39,17 @@ export async function seedPeptidesForUser(userId: number): Promise<number> {
 	const now = new Date();
 	const toInsert = PRESET_PEPTIDES.filter((p) => !have.has(p.name.toLowerCase())).map((p, i) => ({
 		userId,
-		enc: encryptJson({ name: p.name, category: p.category, vialMg: null, notes: null }, aad),
+		enc: encryptJson(
+			{
+				name: p.name,
+				category: p.category,
+				vialMg: null,
+				notes: null,
+				halfLifeHours: suggestHalfLifeHours(p.name),
+				halfLifeSeeded: true
+			},
+			aad
+		),
 		sortOrder: i,
 		createdAt: now
 	}));
@@ -46,13 +57,38 @@ export async function seedPeptidesForUser(userId: number): Promise<number> {
 	return toInsert.length;
 }
 
-/** Backfills any new preset compounds (e.g. Melanotan) for every existing account, not just on an
- *  empty catalog. Mirrors seedPresetsForAllUsers() in presets.ts. No-op per user when encryption
- *  isn't configured. Safe to run on every boot — seedPeptidesForUser is idempotent. */
+/** Fills in the standard reference half-life (STANDARD_HALF_LIVES_HOURS) on compounds that have none and
+ *  have never had one offered — preset compounds used to be seeded without it, which silently hid every
+ *  "active in body" graph for e.g. Retatrutide. Runs once per compound: the `halfLifeSeeded` marker is set
+ *  here and on every save through the repository, so a half-life the user deliberately cleared stays
+ *  cleared. Blends are skipped (their components carry the half-lives). Returns how many were filled. */
+export async function backfillStandardHalfLives(userId: number): Promise<number> {
+	if (!fieldEncryptionAvailable()) return 0;
+	const aad = `${userId}:peptides`;
+	const rows = await db
+		.select({ id: peptides.id, enc: peptides.enc, isBlend: peptides.isBlend })
+		.from(peptides)
+		.where(eq(peptides.userId, userId));
+	let filled = 0;
+	for (const row of rows) {
+		const enc = decryptJson<{ name: string; halfLifeHours?: number | null; halfLifeSeeded?: boolean }>(row.enc, aad);
+		if (row.isBlend || enc.halfLifeSeeded || enc.halfLifeHours != null) continue;
+		const standard = suggestHalfLifeHours(enc.name);
+		const next = { ...enc, halfLifeHours: standard ?? null, halfLifeSeeded: true };
+		await db.update(peptides).set({ enc: encryptJson(next, aad) }).where(eq(peptides.id, row.id));
+		if (standard != null) filled++;
+	}
+	return filled;
+}
+
+/** Backfills any new preset compounds (e.g. Melanotan) and standard half-lives for every existing account,
+ *  not just on an empty catalog. Mirrors seedPresetsForAllUsers() in presets.ts. No-op per user when
+ *  encryption isn't configured. Safe to run on every boot — both steps are idempotent. */
 export async function seedPeptidePresetsForAllUsers(): Promise<void> {
 	if (!fieldEncryptionAvailable()) return;
 	const allUsers = await db.select({ id: users.id }).from(users);
 	for (const user of allUsers) {
 		await seedPeptidesForUser(user.id);
+		await backfillStandardHalfLives(user.id);
 	}
 }
