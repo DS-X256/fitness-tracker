@@ -20,9 +20,9 @@ export const AI_MODEL_SONNET = 'claude-sonnet-5';
 export const AI_MODEL_HAIKU = 'claude-haiku-4-5';
 
 /** The AI Coach chat: multi-step reasoning over the user's data + literature + web search, giving
- *  labelled estimates where evidence is thin — the most capable default tier. Overridable per deployment
- *  (e.g. AI_MODEL_COACH=claude-sonnet-5) when cost matters more than depth. */
-export const AI_MODEL_COACH = env.AI_MODEL_COACH?.trim() || 'claude-opus-5';
+ *  labelled estimates where evidence is thin. Overridable per deployment (e.g. AI_MODEL_COACH=claude-opus-5)
+ *  when depth matters more than cost. */
+export const AI_MODEL_COACH = env.AI_MODEL_COACH?.trim() || AI_MODEL_SONNET;
 /** The peptide dashboard recap. Same default: it has to get blends, phases and schedules exactly right. */
 export const AI_MODEL_PEPTIDE_SUMMARY = env.AI_MODEL_PEPTIDE_SUMMARY?.trim() || 'claude-opus-5';
 
