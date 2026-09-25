@@ -13,6 +13,9 @@
 @import '@fontsource/space-mono/400.css';
 @import '@fontsource/space-mono/700.css';
 @import '@fontsource/vt323/400.css';
+@import '@fontsource/quicksand/500.css';
+@import '@fontsource/quicksand/600.css';
+@import '@fontsource/quicksand/700.css';
 
 /* Themes. Every token below is read by components via var(--…), so a theme is just a token set.
    Selectors are [data-theme='…'] (not :root-only) so any element can opt into a theme — the
@@ -238,6 +241,43 @@
 	--text-glow: 0 0 3px rgba(57, 255, 106, 0.35);
 
 	color-scheme: dark;
+}
+
+/* Blossom — unapologetically pink and girly: candy-pink paper sprinkled with hearts and
+   dots, hot-pink accent, extra-round corners, bubbly Quicksand type and a soft pink glow. */
+[data-theme='blossom'] {
+	--color-bg: #ffeef5;
+	--color-surface: #fff8fb;
+	--color-surface-alt: #ffe0ec;
+	--color-border: #f9c6da;
+	--color-text: #5a1a3a;
+	--color-text-muted: #a8567e;
+	--color-accent: #ff4f9a;
+	--color-accent-hover: #e83585;
+	--color-accent-soft: #ffd3e6;
+	--color-on-accent: #ffffff;
+	--color-danger: #d62d5b;
+	--color-danger-soft: #ffd9e1;
+	--color-success: #2f9e7e;
+	--color-success-soft: #d6f3ea;
+	--color-scrim: rgba(90, 26, 58, 0.35);
+
+	--radius-sm: 10px;
+	--radius-md: 18px;
+	--radius-lg: 26px;
+
+	--shadow-soft: 0 2px 4px rgba(255, 79, 154, 0.08), 0 8px 22px rgba(255, 79, 154, 0.16);
+
+	--font-sans: 'Quicksand', ui-rounded, system-ui, sans-serif;
+	--heading-weight: 600;
+	--label-weight: 700;
+	--label-tracking: 0.03em;
+
+	--bg-pattern:
+		url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='56' viewBox='0 0 56 56'%3E%3Cpath d='M14 20c-2-3-7-2-7 2 0 3 4 5 7 8 3-3 7-5 7-8 0-4-5-5-7-2z' fill='%23ff4f9a' fill-opacity='0.1'/%3E%3Ccircle cx='42' cy='44' r='2' fill='%23ff4f9a' fill-opacity='0.14'/%3E%3C/svg%3E");
+	--bg-pattern-size: 56px 56px;
+
+	color-scheme: light;
 }
 
 /* Palette templates — the classic shape and type, recoloured. */
