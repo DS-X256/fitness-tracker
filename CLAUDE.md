@@ -108,8 +108,11 @@ sharing/ownership pattern:
     those facts, so it goes stale the moment the log changes. `/peptides/[id=integer]` is the per-compound hub.
   - Level graphs ("active in body", `/peptides/levels`, the hub chart) need a compound `halfLifeHours`. Presets
     are seeded with the standard value from `STANDARD_HALF_LIVES_HOURS`, and `backfillStandardHalfLives`
-    (boot, `peptidePresets.ts`) fills never-touched compounds once — the `halfLifeSeeded` marker in `enc` (set on
-    every save) keeps a half-life the user cleared from being refilled.
+    (boot, `peptidePresets.ts`) fills never-touched compounds once per table version — the `halfLifeSeeded` /
+    `halfLifeSeedVersion` markers in `enc` (set on every save) keep a half-life the user cleared from being refilled.
+    Adding keys to the table? Bump `HALF_LIFE_TABLE_VERSION` so existing compounds get offered the new values. The
+    table mixes label/human-PK values with commonly quoted community figures (commented `// community`) for
+    compounds without human PK (BPC-157, TB-500, …); key order matters (no-DAC before DAC before bare CJC-1295).
   - Dose `kind` is `dose | prime | remove | skip`; only `dose` is intake/"taken", `skip` counts as skipped
     (not missed), prime/remove/skip never count toward adherence. Doses also carry `effects` (side-effect tags).
 

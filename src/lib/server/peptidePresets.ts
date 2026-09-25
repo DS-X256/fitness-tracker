@@ -3,7 +3,13 @@ import { peptides, users } from '$lib/server/db/schema';
 import { eq } from 'drizzle-orm';
 import { decryptJson, encryptJson, fieldEncryptionAvailable } from '$lib/server/crypto/fieldCrypto';
 import { createPeptide } from '$lib/server/repositories/peptides';
-import { BLEND_PRESETS, presetComponents, suggestHalfLifeHours, type PeptideCategory } from '$lib/utils/peptides';
+import {
+	BLEND_PRESETS,
+	HALF_LIFE_TABLE_VERSION,
+	presetComponents,
+	suggestHalfLifeHours,
+	type PeptideCategory
+} from '$lib/utils/peptides';
 
 // Starter catalog: compound NAMES + CATEGORIES (+ the published reference half-life where one exists, which
 // powers the "active in body" graphs). These are identity/reference facts to speed data entry — there is
@@ -47,7 +53,8 @@ export async function seedPeptidesForUser(userId: number): Promise<number> {
 				vialMg: null,
 				notes: null,
 				halfLifeHours: suggestHalfLifeHours(p.name),
-				halfLifeSeeded: true
+				halfLifeSeeded: true,
+				halfLifeSeedVersion: HALF_LIFE_TABLE_VERSION
 			},
 			aad
 		),
@@ -87,11 +94,34 @@ export async function seedBlendPresetsForUser(userId: number): Promise<number> {
 	return added;
 }
 
+/** The keys of the first (v1) STANDARD_HALF_LIVES_HOURS, matched as plain substrings the way v1 did. A
+ *  v1-marked compound with no half-life whose name hit one of these was offered a value and the user cleared
+ *  it — it must stay cleared. One whose name hit none was never offered anything, so it gets the newer
+ *  table's value. */
+const V1_HALF_LIFE_KEYS = [
+	'cjc-1295', // covers 'cjc-1295 dac'
+	'semaglutide',
+	'cagrilintide',
+	'retatrutide',
+	'survodutide',
+	'tirzepatide',
+	'dulaglutide',
+	'liraglutide',
+	'bremelanotide',
+	'pt-141',
+	'exenatide',
+	'ipamorelin',
+	'tesamorelin',
+	'sermorelin'
+];
+
 /** Fills in the standard reference half-life (STANDARD_HALF_LIVES_HOURS) on compounds that have none and
- *  have never had one offered — preset compounds used to be seeded without it, which silently hid every
- *  "active in body" graph for e.g. Retatrutide. Runs once per compound: the `halfLifeSeeded` marker is set
- *  here and on every save through the repository, so a half-life the user deliberately cleared stays
- *  cleared. Blends are skipped (their components carry the half-lives). Returns how many were filled. */
+ *  haven't been offered one from the current table — preset compounds used to be seeded without it, which
+ *  silently hid every "active in body" graph for e.g. Retatrutide. Runs once per compound per table version:
+ *  the `halfLifeSeeded`/`halfLifeSeedVersion` markers are set here and on every save through the repository,
+ *  so a half-life the user deliberately cleared stays cleared, while a compound the table only learned about
+ *  later (e.g. Melanotan 1) still gets its value. Blends are skipped (their components carry the
+ *  half-lives). Returns how many were filled. */
 export async function backfillStandardHalfLives(userId: number): Promise<number> {
 	if (!fieldEncryptionAvailable()) return 0;
 	const aad = `${userId}:peptides`;
@@ -101,10 +131,18 @@ export async function backfillStandardHalfLives(userId: number): Promise<number>
 		.where(eq(peptides.userId, userId));
 	let filled = 0;
 	for (const row of rows) {
-		const enc = decryptJson<{ name: string; halfLifeHours?: number | null; halfLifeSeeded?: boolean }>(row.enc, aad);
-		if (row.isBlend || enc.halfLifeSeeded || enc.halfLifeHours != null) continue;
-		const standard = suggestHalfLifeHours(enc.name);
-		const next = { ...enc, halfLifeHours: standard ?? null, halfLifeSeeded: true };
+		const enc = decryptJson<{
+			name: string;
+			halfLifeHours?: number | null;
+			halfLifeSeeded?: boolean;
+			halfLifeSeedVersion?: number;
+		}>(row.enc, aad);
+		const seededVersion = enc.halfLifeSeedVersion ?? (enc.halfLifeSeeded ? 1 : 0);
+		if (row.isBlend || enc.halfLifeHours != null || seededVersion >= HALF_LIFE_TABLE_VERSION) continue;
+		const name = enc.name.trim().toLowerCase();
+		const clearedByUser = seededVersion >= 1 && V1_HALF_LIFE_KEYS.some((key) => name.includes(key));
+		const standard = clearedByUser ? null : suggestHalfLifeHours(enc.name);
+		const next = { ...enc, halfLifeHours: standard, halfLifeSeeded: true, halfLifeSeedVersion: HALF_LIFE_TABLE_VERSION };
 		await db.update(peptides).set({ enc: encryptJson(next, aad) }).where(eq(peptides.id, row.id));
 		if (standard != null) filled++;
 	}

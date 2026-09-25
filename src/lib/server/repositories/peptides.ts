@@ -4,6 +4,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import { decryptJson, encryptJson } from '$lib/server/crypto/fieldCrypto';
 import {
 	blendPercentTotal,
+	HALF_LIFE_TABLE_VERSION,
 	isPeptideCategory,
 	isValidBlendTotal,
 	MAX_BLEND_COMPONENTS,
@@ -34,6 +35,9 @@ type PeptideEnc = {
 	/** Set once the standard half-life has been offered (seeded/backfilled) or the compound was saved by the
 	 *  user — tells backfillStandardHalfLives (peptidePresets.ts) never to refill a half-life the user cleared. */
 	halfLifeSeeded?: boolean;
+	/** HALF_LIFE_TABLE_VERSION at that moment; absent on rows marked before versioning (= version 1). Lets the
+	 *  backfill offer keys added to the table later without refilling a value the user cleared. */
+	halfLifeSeedVersion?: number;
 };
 
 export type Peptide = {
@@ -149,7 +153,16 @@ function sanitize(input: Required<Pick<PeptideInput, 'name' | 'category' | 'vial
 		}
 		halfLifeHours = Math.round(input.halfLifeHours * 100) / 100;
 	}
-	return { name, category, vialMg, notes, components, halfLifeHours, halfLifeSeeded: true };
+	return {
+		name,
+		category,
+		vialMg,
+		notes,
+		components,
+		halfLifeHours,
+		halfLifeSeeded: true,
+		halfLifeSeedVersion: HALF_LIFE_TABLE_VERSION
+	};
 }
 
 export async function listPeptides(
@@ -225,7 +238,8 @@ export async function linkComponents(
 				notes: null,
 				components: null,
 				halfLifeHours: suggestHalfLifeHours(c.name),
-				halfLifeSeeded: true
+				halfLifeSeeded: true,
+				halfLifeSeedVersion: HALF_LIFE_TABLE_VERSION
 			};
 			const [row] = await db
 				.insert(peptides)
