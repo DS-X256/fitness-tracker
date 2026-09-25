@@ -368,7 +368,7 @@
 						</span>
 					{:else if activeName}
 						<span class="text-[0.6875rem] font-semibold uppercase tracking-[0.09em] text-[var(--color-text-muted)]">Now</span>
-						<span class="font-serif text-base font-medium text-[var(--color-text)]"> · {activeName}</span>
+						<span class="font-heading text-base font-medium text-[var(--color-text)]"> · {activeName}</span>
 					{:else}
 						<span class="text-[0.6875rem] font-semibold uppercase tracking-[0.09em] text-[var(--color-text-muted)]">In progress</span>
 					{/if}

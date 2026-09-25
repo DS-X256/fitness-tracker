@@ -14,7 +14,7 @@
 	<div class="w-full max-w-xs">
 		<div class="text-center mb-8">
 			<div
-				class="mx-auto mb-4 h-14 w-14 rounded-[var(--radius-lg)] bg-[var(--color-accent)] flex items-center justify-center text-[var(--color-on-accent)] text-2xl font-serif font-semibold"
+				class="mx-auto mb-4 h-14 w-14 rounded-[var(--radius-lg)] bg-[var(--color-accent)] flex items-center justify-center text-[var(--color-on-accent)] text-2xl font-heading font-semibold"
 			>
 				F
 			</div>

@@ -38,7 +38,7 @@
 	const sizes: Record<string, string> = {
 		md: 'h-11 px-4 text-[15px] rounded-[var(--radius-md)]',
 		lg: 'h-13 px-5 text-base rounded-[var(--radius-md)]',
-		icon: 'h-11 w-11 shrink-0 rounded-full'
+		icon: 'h-11 w-11 shrink-0 rounded-[var(--radius-pill)]'
 	};
 
 	const classes = $derived(`${base} ${variants[variant]} ${sizes[size]} ${full ? 'w-full' : ''} ${className}`);

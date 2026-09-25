@@ -8,7 +8,10 @@ A self-hosted, multi-user PWA for tracking meals/macros, a shopping list tied to
 library, and strength training. SvelteKit (Svelte 5, runes mode) + TypeScript, single Node
 process serving UI and API, SQLite via Drizzle ORM (`better-sqlite3`). No auth dependency —
 sessions and password hashing (`scrypt`) are hand-rolled in `src/lib/server/auth.ts`. Tailwind
-CSS v4, design tokens as CSS variables in `src/routes/layout.css`. No charting library — the
+CSS v4, design tokens as CSS variables in `src/routes/layout.css`. Themes (Auto/Light/Dark plus
+Modern, Retro, Terminal and palette templates) are `[data-theme='…']` token sets in that file, picked
+per-device in Settings (`$lib/utils/theme.ts`, mirrored by the pre-paint script in `app.html`) — style
+components only through the tokens, and a new token needs a default in the base block. No charting library — the
 progress chart in `src/lib/components/workouts/ProgressChart.svelte` is hand-rolled inline SVG.
 
 ## Commands
