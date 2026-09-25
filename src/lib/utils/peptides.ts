@@ -560,35 +560,114 @@ export function blendPortionSummary(portions: BlendPortion[]): string {
 
 /** Published/label terminal half-lives, in hours, for compounds whose PK is actually characterized.
  *  Approximate by nature (they vary with dose, route and person) — they only ever PREFILL a field the
- *  user can overwrite. Order matters: suggestHalfLifeHours takes the first key CONTAINED in the name, so
- *  a more specific variant must precede the bare name it contains ('cjc-1295 dac' before 'cjc-1295').
- *  Deliberately absent: BPC-157, TB-500, GHK-Cu, KPV and friends — no dependable human PK to quote, so
- *  those compounds get no suggestion and the field stays the user's own to fill in. */
+ *  user can overwrite. Order matters: suggestHalfLifeHours takes the first key found in the name, so a
+ *  more specific variant must precede the bare name it contains ('cjc-1295 dac' before 'cjc-1295').
+ *  Brand names map to their compound. Deliberately absent: BPC-157, TB-500, GHK-Cu, KPV, Melanotan II,
+ *  AOD-9604, hexarelin, GHRP-2 and friends — no dependable human PK to quote, so those compounds get no
+ *  suggestion and the field stays the user's own to fill in. Adding keys? Bump HALF_LIFE_TABLE_VERSION. */
 export const STANDARD_HALF_LIVES_HOURS: Record<string, number> = {
 	'cjc-1295 dac': 168, // with DAC: ~6-8 days
+	'cjc-1295 with dac': 168,
+	'cjc-1295 w/ dac': 168,
 	'cjc-1295': 0.5, // without DAC (mod-GRF 1-29): ~30 min
+	'mod grf': 0.5,
+	'modified grf': 0.5,
+	cagrisema: 168, // semaglutide + cagrilintide, both ~7 days
 	semaglutide: 168, // ~7 days
+	ozempic: 168,
+	wegovy: 168,
+	rybelsus: 168,
 	cagrilintide: 168, // ~7 days
+	mazdutide: 192, // ~8 days
 	retatrutide: 144, // ~6 days
 	survodutide: 150, // ~6 days
 	tirzepatide: 120, // ~5 days
+	mounjaro: 120,
+	zepbound: 120,
 	dulaglutide: 113, // ~4.7 days
+	trulicity: 113,
 	liraglutide: 13,
+	victoza: 13,
+	saxenda: 13,
+	hcg: 29, // SC (Ovidrel label); ~24-36 h IM
+	'chorionic gonadotropin': 29,
+	choriogonadotropin: 29,
+	pregnyl: 29,
+	novarel: 29,
+	ovidrel: 29,
+	setmelanotide: 11,
+	imcivree: 11,
+	mecasermin: 5.8, // rhIGF-1 (Increlex) — not IGF-1 LR3, which has no human PK
+	increlex: 5.8,
 	bremelanotide: 2.7,
 	'pt-141': 2.7, // bremelanotide under its common name
+	vyleesi: 2.7,
+	'ghrp-6': 2.5, // IV, terminal phase
+	ghrp6: 2.5,
 	exenatide: 2.4,
+	byetta: 2.4,
 	ipamorelin: 2,
+	'thymosin alpha': 2, // thymalfasin (Zadaxin), SC
+	thymalfasin: 2,
+	zadaxin: 2,
+	'ta-1': 2,
+	ta1: 2,
+	abaloparatide: 1.7,
+	tymlos: 1.7,
+	afamelanotide: 1.25, // Melanotan I, SC solution: ~0.8-1.7 h (the Scenesse implant releases slowly — ~15 h apparent)
+	'melanotan 1': 1.25,
+	'melanotan-1': 1.25,
+	'melanotan i': 1.25, // the name boundary check keeps this off "Melanotan II"
+	'melanotan-i': 1.25,
+	'mt-1': 1.25,
+	'mt-i': 1.25,
+	teriparatide: 1, // SC
+	forteo: 1,
+	pramlintide: 0.8, // ~48 min
+	symlin: 0.8,
 	tesamorelin: 0.6,
-	sermorelin: 0.2
+	egrifta: 0.6,
+	'kisspeptin-54': 0.46, // ~28 min
+	'kp-54': 0.46,
+	sermorelin: 0.2,
+	'kisspeptin-10': 0.07, // ~4 min
+	'kp-10': 0.07
 };
 
-/** Case-insensitive, substring match against STANDARD_HALF_LIVES_HOURS — tolerant of a compound name
- *  that isn't an exact key (e.g. "Retatrutide 10mg/mL"). Null when nothing matches. */
+/** Bumped whenever STANDARD_HALF_LIVES_HOURS gains keys, so backfillStandardHalfLives (peptidePresets.ts)
+ *  offers the new values once to compounds seeded under an older table. */
+export const HALF_LIFE_TABLE_VERSION = 2;
+
+/** Letter, digit or neither — used to keep a key from matching inside a longer word or number. */
+function charClass(ch: string | undefined): 'letter' | 'digit' | null {
+	if (!ch) return null;
+	if (/\p{L}/u.test(ch)) return 'letter';
+	if (/\d/.test(ch)) return 'digit';
+	return null;
+}
+
+/** True when `key` occurs in `name` (both lowercase) and isn't glued to a longer word/number: the characters
+ *  around the match must not continue the key's own first/last character class. So 'melanotan i' misses
+ *  "melanotan ii", 'ta1' misses "beta1" and 'melanotan 1' misses "melanotan 10mg", while
+ *  "retatrutide 10mg/ml" and "semaglutide5mg" still match. */
+function containsKey(name: string, key: string): boolean {
+	const first = charClass(key[0]);
+	const last = charClass(key[key.length - 1]);
+	for (let i = name.indexOf(key); i !== -1; i = name.indexOf(key, i + 1)) {
+		const before = charClass(name[i - 1]);
+		const after = charClass(name[i + key.length]);
+		if ((first == null || before !== first) && (last == null || after !== last)) return true;
+	}
+	return false;
+}
+
+/** Case-insensitive match against STANDARD_HALF_LIVES_HOURS — tolerant of a compound name that isn't an
+ *  exact key (e.g. "Retatrutide 10mg/mL"). Null when nothing matches. */
 export function suggestHalfLifeHours(name: string): number | null {
 	const n = name.trim().toLowerCase();
 	if (!n) return null;
 	for (const [key, hours] of Object.entries(STANDARD_HALF_LIVES_HOURS)) {
-		if (n.includes(key)) return hours;
+		if (containsKey(n, key)) return hours;
 	}
 	return null;
 }
