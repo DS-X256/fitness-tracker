@@ -12,7 +12,7 @@
 <button
 	type="button"
 	{onclick}
-	class={`h-9 px-3.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors border ${
+	class={`h-9 px-3.5 rounded-[var(--radius-pill)] text-sm font-medium whitespace-nowrap transition-colors border ${
 		selected
 			? 'bg-[var(--color-accent)] border-[var(--color-accent)] text-[var(--color-on-accent)]'
 			: 'bg-[var(--color-surface)] border-[var(--color-border)] text-[var(--color-text)] hover:bg-[var(--color-surface-alt)]'

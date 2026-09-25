@@ -6,8 +6,24 @@
 @import '@fontsource/inter/700.css';
 @import '@fontsource/fraunces/500.css';
 @import '@fontsource/fraunces/600.css';
+/* Theme fonts — @font-face only; a file is fetched only when a theme actually uses it. */
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+@import '@fontsource/ibm-plex-mono/600.css';
+@import '@fontsource/space-mono/400.css';
+@import '@fontsource/space-mono/700.css';
+@import '@fontsource/vt323/400.css';
 
-:root {
+/* Themes. Every token below is read by components via var(--…), so a theme is just a token set.
+   Selectors are [data-theme='…'] (not :root-only) so any element can opt into a theme — the
+   Settings picker renders each preview tile inside its own data-theme. The inline script in
+   app.html sets data-theme on <html> before first paint; no data-theme means "Auto" (the classic
+   light/dark pair, following the OS). Theme ids must match THEMES in $lib/utils/theme.ts.
+
+   The first block holds the classic light tokens plus every structural default (fonts, radii,
+   label style, background pattern), so a theme only overrides what it changes. */
+:root,
+[data-theme] {
 	/* Palette — warm beige/neutral, terracotta accent */
 	--color-bg: #faf6f0;
 	--color-surface: #fffdfa;
@@ -25,21 +41,37 @@
 	--color-success-soft: #e1ebe0;
 	--color-scrim: rgba(43, 36, 29, 0.4);
 
-	/* Radius */
+	/* Radius (--radius-pill: chips, icon buttons, tags — square themes flatten it) */
 	--radius-sm: 6px;
 	--radius-md: 12px;
 	--radius-lg: 18px;
+	--radius-pill: 9999px;
 
 	/* Shadow */
 	--shadow-soft: 0 1px 2px rgba(43, 36, 29, 0.04), 0 4px 12px rgba(43, 36, 29, 0.06);
 
+	/* Type */
+	--font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+	--font-heading: 'Fraunces', ui-serif, Georgia, serif;
+	--heading-weight: 600;
+	--heading-tracking: -0.01em;
+	--heading-transform: none;
+	--heading-size-adjust: none;
+	--font-label: var(--font-sans);
+	--label-size: 0.8125rem;
+	--label-weight: 600;
+	--label-tracking: 0.01em;
+	--label-transform: none;
+
+	/* Page texture behind the content, and an optional text glow */
+	--bg-pattern: none;
+	--bg-pattern-size: auto;
+	--text-glow: none;
+
 	color-scheme: light;
 }
 
-/* Dark tokens. Applied when the user explicitly picks dark (data-theme="dark"), or when
-   they've made no choice (no data-theme) and the OS prefers dark. Picking light sets
-   data-theme="light", which keeps the :root light tokens above and opts out of the media
-   query below. The inline script in app.html sets data-theme before first paint. */
+/* Classic dark: when picked explicitly, or on Auto (no data-theme) when the OS prefers dark. */
 @media (prefers-color-scheme: dark) {
 	:root:not([data-theme]) {
 		--color-bg: #201a15;
@@ -62,7 +94,7 @@
 	}
 }
 
-:root[data-theme='dark'] {
+[data-theme='dark'] {
 	--color-bg: #201a15;
 	--color-surface: #2a231c;
 	--color-surface-alt: #332a21;
@@ -82,9 +114,233 @@
 	color-scheme: dark;
 }
 
+/* Modern — an ops-console look: graphite surfaces, electric blue, hairline corners, mono
+   uppercase labels and a faint blueprint grid. */
+[data-theme='modern'] {
+	--color-bg: #111418;
+	--color-surface: #1c2127;
+	--color-surface-alt: #252a31;
+	--color-border: #383e47;
+	--color-text: #f6f7f9;
+	--color-text-muted: #abb3bf;
+	--color-accent: #4c90f0;
+	--color-accent-hover: #8abbff;
+	--color-accent-soft: #1b3252;
+	--color-on-accent: #0c1a2e;
+	--color-danger: #e76a6e;
+	--color-danger-soft: #3d2124;
+	--color-success: #62c08e;
+	--color-success-soft: #1a3328;
+	--color-scrim: rgba(0, 0, 0, 0.6);
+
+	--radius-sm: 2px;
+	--radius-md: 3px;
+	--radius-lg: 4px;
+	--radius-pill: 3px;
+
+	--shadow-soft: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 2px 8px rgba(0, 0, 0, 0.35);
+
+	--font-heading: var(--font-sans);
+	--heading-tracking: -0.02em;
+	--font-label: 'IBM Plex Mono', ui-monospace, monospace;
+	--label-size: 0.6875rem;
+	--label-weight: 500;
+	--label-tracking: 0.1em;
+	--label-transform: uppercase;
+
+	--bg-pattern:
+		linear-gradient(rgba(76, 144, 240, 0.045) 1px, transparent 1px),
+		linear-gradient(90deg, rgba(76, 144, 240, 0.045) 1px, transparent 1px);
+	--bg-pattern-size: 32px 32px;
+
+	color-scheme: dark;
+}
+
+/* Retro — printed-matter throwback: cream paper, ink borders, hard offset shadows,
+   typewriter headings and a halftone dot texture. */
+[data-theme='retro'] {
+	--color-bg: #f3e9d2;
+	--color-surface: #fff9eb;
+	--color-surface-alt: #eadcbf;
+	--color-border: #3b2e22;
+	--color-text: #2b2118;
+	--color-text-muted: #6e5b45;
+	--color-accent: #d2461e;
+	--color-accent-hover: #b23a17;
+	--color-accent-soft: #f6d2b4;
+	--color-on-accent: #fff9eb;
+	--color-danger: #a62b1f;
+	--color-danger-soft: #f2cfc6;
+	--color-success: #2a7a6b;
+	--color-success-soft: #cfe6dc;
+	--color-scrim: rgba(43, 33, 24, 0.45);
+
+	--radius-sm: 3px;
+	--radius-md: 4px;
+	--radius-lg: 6px;
+	--radius-pill: 6px;
+
+	--shadow-soft: 3px 3px 0 #2b2118;
+
+	--font-heading: 'Space Mono', ui-monospace, monospace;
+	--heading-weight: 700;
+	--heading-tracking: -0.03em;
+	--font-label: 'Space Mono', ui-monospace, monospace;
+	--label-size: 0.6875rem;
+	--label-weight: 700;
+	--label-tracking: 0.06em;
+	--label-transform: uppercase;
+
+	--bg-pattern: radial-gradient(rgba(43, 33, 24, 0.09) 1px, transparent 1.2px);
+	--bg-pattern-size: 12px 12px;
+
+	color-scheme: light;
+}
+
+/* Terminal — green-phosphor CRT: everything monospace, square corners, soft glow and
+   scanlines (the scanline overlay is below, in the base layer). */
+[data-theme='terminal'] {
+	--color-bg: #050a06;
+	--color-surface: #0a140c;
+	--color-surface-alt: #0f1f13;
+	--color-border: #1c4426;
+	--color-text: #8cffa8;
+	--color-text-muted: #4fb86e;
+	--color-accent: #39ff6a;
+	--color-accent-hover: #8cffa8;
+	--color-accent-soft: #0f3a1c;
+	--color-on-accent: #031006;
+	--color-danger: #ff6b5b;
+	--color-danger-soft: #3a1410;
+	--color-success: #c8ff5c;
+	--color-success-soft: #26330c;
+	--color-scrim: rgba(0, 0, 0, 0.7);
+
+	--radius-sm: 0px;
+	--radius-md: 0px;
+	--radius-lg: 0px;
+	--radius-pill: 0px;
+
+	--shadow-soft: 0 0 0 1px rgba(57, 255, 106, 0.06), 0 0 14px rgba(57, 255, 106, 0.06);
+
+	--font-sans: 'IBM Plex Mono', ui-monospace, monospace;
+	--font-heading: 'VT323', ui-monospace, monospace;
+	--heading-weight: 400;
+	--heading-tracking: 0.02em;
+	--heading-transform: uppercase;
+	/* VT323 has a tiny x-height; scale it up to sit with the body text. */
+	--heading-size-adjust: 0.62;
+	--label-size: 0.75rem;
+	--label-weight: 500;
+	--label-tracking: 0.08em;
+	--label-transform: uppercase;
+
+	--text-glow: 0 0 3px rgba(57, 255, 106, 0.35);
+
+	color-scheme: dark;
+}
+
+/* Palette templates — the classic shape and type, recoloured. */
+[data-theme='midnight'] {
+	--color-bg: #0d1020;
+	--color-surface: #151932;
+	--color-surface-alt: #1d2242;
+	--color-border: #2b3160;
+	--color-text: #e7e8f6;
+	--color-text-muted: #9ea2cc;
+	--color-accent: #9b8cff;
+	--color-accent-hover: #b7abff;
+	--color-accent-soft: #2c2758;
+	--color-on-accent: #120f2e;
+	--color-danger: #ff7a8a;
+	--color-danger-soft: #3e1d2b;
+	--color-success: #6fd6a8;
+	--color-success-soft: #173530;
+	--color-scrim: rgba(0, 0, 0, 0.6);
+	--shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.2), 0 4px 14px rgba(0, 0, 0, 0.25);
+
+	color-scheme: dark;
+}
+
+[data-theme='forest'] {
+	--color-bg: #f2f4ec;
+	--color-surface: #fbfcf7;
+	--color-surface-alt: #e4e9d8;
+	--color-border: #d2dac2;
+	--color-text: #1e291c;
+	--color-text-muted: #5f6d59;
+	--color-accent: #4a7a34;
+	--color-accent-hover: #3b6329;
+	--color-accent-soft: #dce8cf;
+	--color-on-accent: #ffffff;
+	--color-danger: #b0432c;
+	--color-danger-soft: #f3ddd5;
+	--color-success: #2c7a6a;
+	--color-success-soft: #d5eae4;
+	--color-scrim: rgba(30, 41, 28, 0.4);
+	--shadow-soft: 0 1px 2px rgba(30, 41, 28, 0.04), 0 4px 12px rgba(30, 41, 28, 0.06);
+}
+
+[data-theme='ocean'] {
+	--color-bg: #f1f5f9;
+	--color-surface: #ffffff;
+	--color-surface-alt: #e2eaf2;
+	--color-border: #d0dce7;
+	--color-text: #14202c;
+	--color-text-muted: #5b6b7d;
+	--color-accent: #1868b7;
+	--color-accent-hover: #125596;
+	--color-accent-soft: #d5e5f5;
+	--color-on-accent: #ffffff;
+	--color-danger: #c23b2a;
+	--color-danger-soft: #f6ddd8;
+	--color-success: #2b7a57;
+	--color-success-soft: #d8ece2;
+	--color-scrim: rgba(20, 32, 44, 0.4);
+	--shadow-soft: 0 1px 2px rgba(20, 32, 44, 0.04), 0 4px 12px rgba(20, 32, 44, 0.06);
+}
+
+[data-theme='rose'] {
+	--color-bg: #fbf3f4;
+	--color-surface: #fffbfb;
+	--color-surface-alt: #f3e3e6;
+	--color-border: #e8d1d6;
+	--color-text: #2f1d22;
+	--color-text-muted: #83646b;
+	--color-accent: #c2416a;
+	--color-accent-hover: #a43457;
+	--color-accent-soft: #f5dae2;
+	--color-on-accent: #ffffff;
+	--color-danger: #b5391c;
+	--color-danger-soft: #f5dcd3;
+	--color-success: #3d7a58;
+	--color-success-soft: #ddebe2;
+	--color-scrim: rgba(47, 29, 34, 0.4);
+	--shadow-soft: 0 1px 2px rgba(47, 29, 34, 0.04), 0 4px 12px rgba(47, 29, 34, 0.06);
+}
+
+[data-theme='mono'] {
+	--color-bg: #f5f5f4;
+	--color-surface: #ffffff;
+	--color-surface-alt: #eaeae8;
+	--color-border: #d9d9d6;
+	--color-text: #111111;
+	--color-text-muted: #6b6b69;
+	--color-accent: #111111;
+	--color-accent-hover: #333333;
+	--color-accent-soft: #e2e2e0;
+	--color-on-accent: #ffffff;
+	--color-danger: #b42318;
+	--color-danger-soft: #f7deda;
+	--color-success: #2f6f3e;
+	--color-success-soft: #deebdf;
+	--color-scrim: rgba(0, 0, 0, 0.4);
+	--shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
 @theme {
-	--font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
-	--font-serif: 'Fraunces', ui-serif, Georgia, serif;
+	--font-sans: var(--font-sans);
+	--font-heading: var(--font-heading);
 
 	--color-bg: var(--color-bg);
 	--color-surface: var(--color-surface);
@@ -115,8 +371,12 @@
 
 	body {
 		background-color: var(--color-bg);
+		background-image: var(--bg-pattern);
+		background-size: var(--bg-pattern-size);
+		background-attachment: fixed;
 		color: var(--color-text);
 		font-family: var(--font-sans);
+		text-shadow: var(--text-glow);
 		-webkit-font-smoothing: antialiased;
 		overscroll-behavior-y: none;
 	}
@@ -124,10 +384,22 @@
 	h1,
 	h2,
 	h3 {
-		font-family: var(--font-serif);
-		font-weight: 600;
-		letter-spacing: -0.01em;
+		font-family: var(--font-heading);
+		font-weight: var(--heading-weight);
+		letter-spacing: var(--heading-tracking);
+		text-transform: var(--heading-transform);
+		font-size-adjust: var(--heading-size-adjust);
 		text-wrap: balance;
+	}
+
+	/* Terminal's CRT scanlines, laid over everything but never intercepting input. */
+	:root[data-theme='terminal'] body::after {
+		content: '';
+		position: fixed;
+		inset: 0;
+		z-index: 100;
+		pointer-events: none;
+		background: repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.22) 0 1px, transparent 1px 3px);
 	}
 
 	::selection {
@@ -156,18 +428,20 @@
 	/* The one style for section and card captions — a quiet sans label that lets
 	   content carry the weight. Used on h2/p regardless of element. */
 	.section-label {
-		font-family: var(--font-sans);
-		font-size: 0.8125rem;
+		font-family: var(--font-label);
+		font-size: var(--label-size);
 		line-height: 1.25rem;
-		font-weight: 600;
-		letter-spacing: 0.01em;
+		font-weight: var(--label-weight);
+		letter-spacing: var(--label-tracking);
+		text-transform: var(--label-transform);
 		color: var(--color-text-muted);
 	}
 
 	/* Tiny uppercase pill marking what kind of thing a row is (Meal / Product). */
 	.type-pill {
 		flex-shrink: 0;
-		border-radius: 9999px;
+		border-radius: var(--radius-pill);
+		font-family: var(--font-label);
 		background-color: var(--color-surface-alt);
 		padding: 0.125rem 0.4375rem;
 		font-size: 0.625rem;

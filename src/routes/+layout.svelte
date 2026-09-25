@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { browser, dev } from '$app/environment';
 	import BottomNav from '$lib/components/BottomNav.svelte';
+	import { syncThemeColor } from '$lib/utils/theme';
 
 	let { children } = $props();
 
@@ -10,6 +11,10 @@
 	// The assistant is a full-height chat: it owns the space between header and bottom nav and manages
 	// its own scrolling, so main becomes a flex column and drops the usual bottom-nav padding.
 	const isAssistant = $derived(page.url.pathname === '/assistant');
+
+	// app.html applies the saved theme before paint; once styles are live, point the browser
+	// chrome colour at that theme's background too.
+	$effect(() => syncThemeColor());
 
 	if (browser && !dev && 'serviceWorker' in navigator) {
 		navigator.serviceWorker.register('/service-worker.js');

@@ -12,12 +12,14 @@
 		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 		<meta name="apple-mobile-web-app-title" content="Fitness" />
 		<script>
-			// Apply the saved theme before first paint to avoid a flash. 'light'/'dark' set
+			// Apply the saved theme before first paint to avoid a flash. A known theme id sets
 			// data-theme; anything else (no value = 'system') falls back to prefers-color-scheme.
+			// Keep this list in sync with THEME_IDS in src/lib/utils/theme.ts.
 			(function () {
 				try {
 					var t = localStorage.getItem('theme');
-					if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+					var themes = ['light', 'dark', 'modern', 'retro', 'terminal', 'midnight', 'forest', 'ocean', 'rose', 'mono'];
+					if (themes.indexOf(t) !== -1) document.documentElement.dataset.theme = t;
 				} catch (e) {}
 			})();
 		</script>
