@@ -4,6 +4,7 @@
 	// aware) and, for a blend, what that dose splits into. Log = one tap at today's target; Adjust = the
 	// full form prefilled; Skip = a deliberate skip so adherence says "skipped", not "missed".
 	import { enhance } from '$app/forms';
+	import { celebrate } from '$lib/utils/kitten';
 	import Card from '$lib/components/Card.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import BlendBreakdown from './BlendBreakdown.svelte';
@@ -48,6 +49,7 @@
 			error = '';
 			return async ({ result, update }: { result: { type: string; data?: Record<string, unknown> }; update: () => Promise<void> }) => {
 				busy = null;
+				if (result.type === 'success' && key.startsWith('log-')) celebrate();
 				if (result.type === 'failure') error = typeof result.data?.error === 'string' ? result.data.error : 'Something went wrong';
 				await update();
 			};

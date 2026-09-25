@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { celebrate } from '$lib/utils/kitten';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import Card from '$lib/components/Card.svelte';
 	import Button from '$lib/components/Button.svelte';
@@ -135,6 +136,7 @@
 				return async ({ result, update }) => {
 					if (result.type === 'success') {
 						logged = true;
+						celebrate();
 						clearTimeout(loggedTimeout);
 						loggedTimeout = setTimeout(() => (logged = false), 2000);
 					} else if (result.type === 'failure') {

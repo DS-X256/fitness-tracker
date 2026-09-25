@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { celebrate } from '$lib/utils/kitten';
 	import Modal from '$lib/components/Modal.svelte';
 	import NumberField from '$lib/components/NumberField.svelte';
 	import TextareaField from '$lib/components/TextareaField.svelte';
@@ -87,7 +88,10 @@
 		use:enhance={() => {
 			error = '';
 			return async ({ result, update }) => {
-				if (result.type === 'success') open = false;
+				if (result.type === 'success') {
+					open = false;
+					celebrate();
+				}
 				else if (result.type === 'failure') error = (result.data?.error as string) ?? 'Could not save';
 				await update({ reset: false });
 			};
