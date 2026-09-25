@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { browser, dev } from '$app/environment';
 	import BottomNav from '$lib/components/BottomNav.svelte';
+	import PeekingKitten from '$lib/components/PeekingKitten.svelte';
 	import { syncThemeColor } from '$lib/utils/theme';
 
 	let { children } = $props();
@@ -32,5 +33,6 @@
 	</main>
 	{#if showChrome}
 		<BottomNav />
+		<PeekingKitten />
 	{/if}
 </div>
