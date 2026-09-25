@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { celebrate } from '$lib/utils/kitten';
 	import NumberStepper from '$lib/components/NumberStepper.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 
@@ -45,6 +46,7 @@
 					clearTimeout(flashTimeout);
 					flashTimeout = setTimeout(() => (justAdded = false), 1000);
 					onLogged?.();
+					celebrate();
 				} else if (result.type === 'failure') {
 					errorMsg = (result.data?.error as string) ?? 'Could not log set';
 				}

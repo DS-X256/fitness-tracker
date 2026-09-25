@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { celebrate } from '$lib/utils/kitten';
 	import { goto } from '$app/navigation';
 	import Modal from '$lib/components/Modal.svelte';
 	import TextField from '$lib/components/TextField.svelte';
@@ -201,6 +202,8 @@
 				return async ({ result, update }) => {
 					if (result.type === 'success') {
 						reset();
+						celebrate();
+						celebrate();
 					} else if (result.type === 'failure') {
 						error = (result.data?.error as string) ?? 'Could not log';
 					}

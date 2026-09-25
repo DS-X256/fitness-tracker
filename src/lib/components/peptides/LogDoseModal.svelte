@@ -4,6 +4,7 @@
 	// open container and the next rotation site — so logging a planned dose is "open, check, save". Dose
 	// can be typed in mg or mcg; a blend shows its live component split; side effects ride along.
 	import { enhance } from '$app/forms';
+	import { celebrate } from '$lib/utils/kitten';
 	import { untrack } from 'svelte';
 	import Modal from '$lib/components/Modal.svelte';
 	import NumberStepper from '$lib/components/NumberStepper.svelte';
@@ -285,7 +286,10 @@
 		use:enhance={() => {
 			error = '';
 			return async ({ result, update }) => {
-				if (result.type === 'success') open = false;
+				if (result.type === 'success') {
+					open = false;
+					if (!editing) celebrate();
+				}
 				else if (result.type === 'failure')
 					error = (result.data?.error as string) ?? (editing ? 'Could not update dose' : 'Could not log dose');
 				await update({ reset: false });

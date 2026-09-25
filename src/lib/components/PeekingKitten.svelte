@@ -2,14 +2,11 @@
 	import { onMount } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import { backOut } from 'svelte/easing';
+	import { onKittenPeek } from '$lib/utils/kitten';
 
-	// Blossom-theme easter egg: now and then a pink kitten peeks up from the bottom edge, waves
-	// for a few seconds and ducks away again. Rare on purpose — first visit after ~1.5–4 min, then
-	// every ~6–15 min — and only while the tab is visible and Blossom is the active theme.
-	const FIRST_MIN_MS = 90_000;
-	const FIRST_MAX_MS = 240_000;
-	const NEXT_MIN_MS = 360_000;
-	const NEXT_MAX_MS = 900_000;
+	// Blossom-theme reward: a pink kitten peeks up from the bottom edge for a few seconds after
+	// the user logs something. Whether it shows (theme, cooldown, chance) is decided by celebrate()
+	// in $lib/utils/kitten — this component only plays it.
 	const VISIBLE_MS = 4_500;
 
 	let visible = $state(false);
@@ -18,31 +15,19 @@
 	const reduceMotion =
 		typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-	function between(min: number, max: number) {
-		return min + Math.random() * (max - min);
-	}
-
 	onMount(() => {
-		let timer: ReturnType<typeof setTimeout>;
 		let hideTimer: ReturnType<typeof setTimeout>;
-
-		function schedule(min: number, max: number) {
-			timer = setTimeout(peek, between(min, max));
-		}
-
-		function peek() {
-			const blossom = document.documentElement.dataset.theme === 'blossom';
-			if (blossom && document.visibilityState === 'visible') {
+		const stop = onKittenPeek(() => {
+			// Let a closing modal get out of the way first.
+			setTimeout(() => {
 				side = Math.random() < 0.5 ? 'left' : 'right';
 				visible = true;
+				clearTimeout(hideTimer);
 				hideTimer = setTimeout(() => (visible = false), VISIBLE_MS);
-			}
-			schedule(NEXT_MIN_MS, NEXT_MAX_MS);
-		}
-
-		schedule(FIRST_MIN_MS, FIRST_MAX_MS);
+			}, 350);
+		});
 		return () => {
-			clearTimeout(timer);
+			stop();
 			clearTimeout(hideTimer);
 		};
 	});
