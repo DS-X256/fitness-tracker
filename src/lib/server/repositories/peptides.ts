@@ -4,6 +4,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import { decryptJson, encryptJson } from '$lib/server/crypto/fieldCrypto';
 import {
 	blendPercentTotal,
+	compoundNameWithAliases,
 	HALF_LIFE_TABLE_VERSION,
 	isPeptideCategory,
 	isValidBlendTotal,
@@ -226,7 +227,9 @@ export async function linkComponents(
 	for (const c of components) {
 		let target = c.peptideId != null ? byId.get(c.peptideId) : undefined;
 		if (!target || normalizeCompoundName(target.name) !== normalizeCompoundName(c.name)) {
-			target = byName.get(normalizeCompoundName(c.name));
+			target = compoundNameWithAliases(c.name)
+				.map((n) => byName.get(normalizeCompoundName(n)))
+				.find((p) => p != null);
 		}
 		if (target && blendId != null && target.id === blendId) throw new Error("A blend can't contain itself");
 		if (target && target.isBlend) throw new Error(`${target.name} is itself a blend — list its components instead`);

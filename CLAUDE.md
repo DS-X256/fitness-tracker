@@ -113,9 +113,12 @@ sharing/ownership pattern:
     are seeded with the standard value from `STANDARD_HALF_LIVES_HOURS`, and `backfillStandardHalfLives`
     (boot, `peptidePresets.ts`) fills never-touched compounds once per table version — the `halfLifeSeeded` /
     `halfLifeSeedVersion` markers in `enc` (set on every save) keep a half-life the user cleared from being refilled.
-    Adding keys to the table? Bump `HALF_LIFE_TABLE_VERSION` so existing compounds get offered the new values. The
+    Adding keys to the table? Bump `HALF_LIFE_TABLE_VERSION` so existing compounds get offered the new values. Changing
+    an existing value? Also add a `HALF_LIFE_REVISIONS` entry (old value + keys) so compounds still holding the old
+    default are moved to the new one (e.g. TB-500 72 h → 120 h in v3); user-entered values are never touched. The
     table mixes label/human-PK values with commonly quoted community figures (commented `// community`) for
-    compounds without human PK (BPC-157, TB-500, …); key order matters (no-DAC before DAC before bare CJC-1295).
+    compounds without human PK (BPC-157, TB-500, …); key order matters (no-DAC before DAC before bare CJC-1295). CJC-1295 is seeded as two compounds, "(no DAC)" and
+    "(with DAC)"; `COMPOUND_NAME_ALIASES` maps the old plain "CJC-1295" preset to the no-DAC one so it isn't duplicated.
   - Dose `kind` is `dose | prime | remove | skip`; only `dose` is intake/"taken", `skip` counts as skipped
     (not missed), prime/remove/skip never count toward adherence. Doses also carry `effects` (side-effect tags).
 
