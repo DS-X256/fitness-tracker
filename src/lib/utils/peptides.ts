@@ -443,7 +443,7 @@ export const BLEND_PRESETS: BlendPreset[] = [
 		category: 'gh_secretagogue',
 		vialMg: 10,
 		components: [
-			{ name: 'CJC-1295', labelMg: 5 },
+			{ name: 'CJC-1295 (no DAC)', labelMg: 5 },
 			{ name: 'Ipamorelin', labelMg: 5 }
 		]
 	},
@@ -473,6 +473,19 @@ export function presetComponents(preset: BlendPreset): BlendComponent[] {
  *  "BPC 157", "bpc-157" and "BPC157" all find the same compound. */
 export function normalizeCompoundName(name: string): string {
 	return name.toLowerCase().replace(/[\s\-_.]+/g, '');
+}
+
+/** Older names a compound was seeded under before it was renamed, keyed by the current name. The plain
+ *  "CJC-1295" preset was always the no-DAC (mod-GRF 1-29) form, so an account that already has it counts as
+ *  having "CJC-1295 (no DAC)" — neither re-seeded next to it nor duplicated when a blend preset links it. */
+export const COMPOUND_NAME_ALIASES: Record<string, string[]> = {
+	'CJC-1295 (no DAC)': ['CJC-1295']
+};
+
+/** `name` followed by its older aliases (see COMPOUND_NAME_ALIASES), matched case-insensitively. */
+export function compoundNameWithAliases(name: string): string[] {
+	const hit = Object.entries(COMPOUND_NAME_ALIASES).find(([k]) => k.toLowerCase() === name.trim().toLowerCase());
+	return [name, ...(hit?.[1] ?? [])];
 }
 
 /** True when every component has a positive label amount — the blend was entered as label mg. */
@@ -570,7 +583,8 @@ export function blendPortionSummary(portions: BlendPortion[]): string {
  *  the CJC/Ipamorelin blend uses). Brand names map to their compound. Still absent — nothing quotable even
  *  from peptide references: Selank, PEG-MGF/MGF. Adding keys? Bump HALF_LIFE_TABLE_VERSION. */
 export const STANDARD_HALF_LIVES_HOURS: Record<string, number> = {
-	// CJC-1295: without DAC (mod-GRF 1-29) ~30 min; with DAC ~6-8 days.
+	// CJC-1295: without DAC (mod-GRF 1-29) ~30 min; with DAC (albumin-bound) ~6-8 days (5.8-8.1 d in
+	// Teichman 2006). Two separate preset compounds, "CJC-1295 (no DAC)" and "CJC-1295 (with DAC)".
 	'no dac': 0.5,
 	'without dac': 0.5,
 	'w/o dac': 0.5,
@@ -585,6 +599,7 @@ export const STANDARD_HALF_LIVES_HOURS: Record<string, number> = {
 	'cjc 1295 dac': 168,
 	'cjc1295 dac': 168,
 	'cjc dac': 168,
+	'dac grf': 168,
 	'cjc 1295': 0.5,
 	cjc1295: 0.5,
 
@@ -672,9 +687,13 @@ export const STANDARD_HALF_LIVES_HOURS: Record<string, number> = {
 	sermorelin: 0.2,
 
 	// Healing / repair — community figures
-	'tb 500': 72, // community: ~2-4 days is the common quote; plasma estimates run as low as ~3 h
-	tb500: 72,
-	'thymosin beta': 72,
+	// TB-500: no human PK for the fragment. Community references quote anything from ~2-3 days (animal
+	// data) to ~7 days (calculator sites), and it's dosed once or twice a week; ~5 days sits in that band.
+	// (Plasma estimates for full-length thymosin β4 IV run ~1-3 h — that's not what this prefills for.)
+	// Was 72 h up to table v2 — see HALF_LIFE_REVISIONS.
+	'tb 500': 120,
+	tb500: 120,
+	'thymosin beta': 120,
 	'bpc 157': 4, // community: ~4-6 h SC; rat IV PK is ~15-30 min
 	bpc157: 4,
 	'ghk cu': 1, // community: ~0.5-2 h
@@ -709,9 +728,17 @@ export const STANDARD_HALF_LIVES_HOURS: Record<string, number> = {
 	vip: 0.03
 };
 
-/** Bumped whenever STANDARD_HALF_LIVES_HOURS gains keys, so backfillStandardHalfLives (peptidePresets.ts)
- *  offers the new values once to compounds seeded under an older table. */
-export const HALF_LIFE_TABLE_VERSION = 2;
+/** Bumped whenever STANDARD_HALF_LIVES_HOURS gains keys or changes a value, so backfillStandardHalfLives
+ *  (peptidePresets.ts) offers the new values once to compounds seeded under an older table. */
+export const HALF_LIFE_TABLE_VERSION = 3;
+
+/** Table values a later version CHANGED (not just added). A compound marked with an older table version
+ *  whose name matches one of `keys` and still holds exactly `previousHours` is taken to carry the untouched
+ *  old default and is moved to the current table value by backfillStandardHalfLives; any other value is the
+ *  user's own and stays. Adding one? Bump HALF_LIFE_TABLE_VERSION to `version`. */
+export const HALF_LIFE_REVISIONS: { version: number; keys: string[]; previousHours: number }[] = [
+	{ version: 3, keys: ['tb 500', 'tb500', 'thymosin beta'], previousHours: 72 }
+];
 
 /** Lowercase, with runs of spaces/hyphens/underscores collapsed to one space, so "CJC-1295 no-DAC",
  *  "cjc 1295 no dac" and "CJC_1295 No DAC" all read the same. */
@@ -745,6 +772,12 @@ function containsKey(name: string, key: string): boolean {
 const HALF_LIFE_ENTRIES = Object.entries(STANDARD_HALF_LIVES_HOURS).map(
 	([key, hours]) => [normalizeForHalfLife(key), hours] as const
 );
+
+/** True when `name` contains one of `keys` under the same matching rules as suggestHalfLifeHours. */
+export function nameMatchesHalfLifeKey(name: string, keys: string[]): boolean {
+	const n = normalizeForHalfLife(name);
+	return !!n && keys.some((key) => containsKey(n, normalizeForHalfLife(key)));
+}
 
 /** Reference half-life for a compound name, tolerant of a name that isn't an exact key (e.g. "Retatrutide
  *  10mg/mL", "CJC-1295 no-DAC"). Null when nothing matches. */

@@ -5,7 +5,10 @@ import { decryptJson, encryptJson, fieldEncryptionAvailable } from '$lib/server/
 import { createPeptide } from '$lib/server/repositories/peptides';
 import {
 	BLEND_PRESETS,
+	compoundNameWithAliases,
+	HALF_LIFE_REVISIONS,
 	HALF_LIFE_TABLE_VERSION,
+	nameMatchesHalfLifeKey,
 	presetComponents,
 	suggestHalfLifeHours,
 	type PeptideCategory
@@ -26,7 +29,10 @@ export const PRESET_PEPTIDES: { name: string; category: PeptideCategory }[] = [
 	{ name: 'GHK-Cu', category: 'healing' },
 	{ name: 'KPV', category: 'healing' },
 	{ name: 'Ipamorelin', category: 'gh_secretagogue' },
-	{ name: 'CJC-1295', category: 'gh_secretagogue' },
+	// Separate compounds: no DAC (mod-GRF 1-29, ~30 min) vs with DAC (~7 days). Accounts seeded before the
+	// split have the no-DAC one as plain "CJC-1295" — COMPOUND_NAME_ALIASES keeps it from being re-added.
+	{ name: 'CJC-1295 (no DAC)', category: 'gh_secretagogue' },
+	{ name: 'CJC-1295 (with DAC)', category: 'gh_secretagogue' },
 	{ name: 'Sermorelin', category: 'gh_secretagogue' },
 	{ name: 'Tesamorelin', category: 'gh_secretagogue' },
 	{ name: 'PT-141', category: 'other' },
@@ -44,7 +50,9 @@ export async function seedPeptidesForUser(userId: number): Promise<number> {
 	const existing = await db.select({ enc: peptides.enc }).from(peptides).where(eq(peptides.userId, userId));
 	const have = new Set(existing.map((r) => decryptJson<{ name: string }>(r.enc, aad).name.toLowerCase()));
 	const now = new Date();
-	const toInsert = PRESET_PEPTIDES.filter((p) => !have.has(p.name.toLowerCase())).map((p, i) => ({
+	const toInsert = PRESET_PEPTIDES.filter(
+		(p) => !compoundNameWithAliases(p.name).some((n) => have.has(n.toLowerCase()))
+	).map((p, i) => ({
 		userId,
 		enc: encryptJson(
 			{
@@ -120,8 +128,9 @@ const V1_HALF_LIFE_KEYS = [
  *  silently hid every "active in body" graph for e.g. Retatrutide. Runs once per compound per table version:
  *  the `halfLifeSeeded`/`halfLifeSeedVersion` markers are set here and on every save through the repository,
  *  so a half-life the user deliberately cleared stays cleared, while a compound the table only learned about
- *  later (e.g. Melanotan 1) still gets its value. Blends are skipped (their components carry the
- *  half-lives). Returns how many were filled. */
+ *  later (e.g. Melanotan 1) still gets its value. A value that still equals a default the table later revised
+ *  (HALF_LIFE_REVISIONS) is moved to the new default; any other value is left alone. Blends are skipped
+ *  (their components carry the half-lives). Returns how many were filled or updated. */
 export async function backfillStandardHalfLives(userId: number): Promise<number> {
 	if (!fieldEncryptionAvailable()) return 0;
 	const aad = `${userId}:peptides`;
@@ -138,7 +147,22 @@ export async function backfillStandardHalfLives(userId: number): Promise<number>
 			halfLifeSeedVersion?: number;
 		}>(row.enc, aad);
 		const seededVersion = enc.halfLifeSeedVersion ?? (enc.halfLifeSeeded ? 1 : 0);
-		if (row.isBlend || enc.halfLifeHours != null || seededVersion >= HALF_LIFE_TABLE_VERSION) continue;
+		if (row.isBlend || seededVersion >= HALF_LIFE_TABLE_VERSION) continue;
+		if (enc.halfLifeHours != null) {
+			// Still holding a default a later table changed (e.g. TB-500's old 72 h)? Move it to the new value.
+			const revised = HALF_LIFE_REVISIONS.some(
+				(rev) =>
+					rev.version > seededVersion &&
+					enc.halfLifeHours === rev.previousHours &&
+					nameMatchesHalfLifeKey(enc.name, rev.keys)
+			);
+			const standard = revised ? suggestHalfLifeHours(enc.name) : null;
+			if (standard == null || standard === enc.halfLifeHours) continue;
+			const next = { ...enc, halfLifeHours: standard, halfLifeSeeded: true, halfLifeSeedVersion: HALF_LIFE_TABLE_VERSION };
+			await db.update(peptides).set({ enc: encryptJson(next, aad) }).where(eq(peptides.id, row.id));
+			filled++;
+			continue;
+		}
 		const name = enc.name.trim().toLowerCase();
 		const clearedByUser = seededVersion >= 1 && V1_HALF_LIFE_KEYS.some((key) => name.includes(key));
 		const standard = clearedByUser ? null : suggestHalfLifeHours(enc.name);
