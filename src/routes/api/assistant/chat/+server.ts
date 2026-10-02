@@ -22,15 +22,34 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 	const stream = new ReadableStream({
 		async start(controller) {
-			const send = (event: AssistantEvent) => controller.enqueue(encoder.encode(JSON.stringify(event) + '\n'));
+			// If the client disconnects (tab closed), enqueue throws; swallow that so the turn keeps running
+			// server-side and still persists its reply, which is there when the user comes back.
+			let open = true;
+			const send = (event: AssistantEvent) => {
+				if (!open) return;
+				try {
+					controller.enqueue(encoder.encode(JSON.stringify(event) + '\n'));
+				} catch {
+					open = false;
+				}
+			};
 			try {
 				await runAssistantTurn(userId, threadId, message, send);
 			} catch (err) {
 				console.error('AI Coach stream failed', err);
 				send({ type: 'error', message: 'The AI Coach request failed. Try again.' });
 			} finally {
-				controller.close();
+				if (open) {
+					try {
+						controller.close();
+					} catch {
+						/* already closed by the client */
+					}
+				}
 			}
+		},
+		cancel() {
+			// Client went away: deliberately do nothing so runAssistantTurn isn't interrupted.
 		}
 	});
 
