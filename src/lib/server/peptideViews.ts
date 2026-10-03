@@ -11,6 +11,7 @@ import {
 	type BlendPortion,
 	type DoseEffect,
 	type DoseKind,
+	type LevelDose,
 	type MeasureUnit
 } from '$lib/utils/peptides';
 import { isWithinActiveSpan, phaseOn, scheduleLabel, type DosePhase } from '$lib/utils/peptideSchedule';
@@ -137,7 +138,7 @@ export type ActiveLevelRow = {
 	viaBlend: boolean;
 	/** Doses still contributing to the level (≈ 10 half-lives back, at least 14 days) for the trend
 	 *  sparkline, oldest first — drawn client-side with levelSeries(), the same way LevelChart is. */
-	doses: { date: string; doseMcg: number }[];
+	doses: LevelDose[];
 };
 
 /** "Active in body" estimates for every compound with a half-life, per route (never summed across

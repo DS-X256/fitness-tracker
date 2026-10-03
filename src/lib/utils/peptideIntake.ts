@@ -11,7 +11,7 @@
 // Per $lib/utils/peptides and PEPTIDE_MULTIROUTE_PROMPT.md: amounts are never summed across routes (no
 // bioavailability model exists here), so every aggregate below is keyed by (compound, route).
 
-import { normalizeCompoundName, splitBlendDose, type AdminRoute, type BlendComponent, type BlendPortion, type DoseKind } from './peptides';
+import { normalizeCompoundName, splitBlendDose, type AdminRoute, type BlendComponent, type BlendPortion, type DoseKind, type LevelDose } from './peptides';
 
 export type IntakeCompound = {
 	id: number;
@@ -144,10 +144,12 @@ export function intakeTotals(entries: IntakeEntry[]): IntakeTotal[] {
 	return [...map.values()].map((t) => ({ ...t, totalMcg: Math.round(t.totalMcg * 1000) / 1000, viaBlendMcg: Math.round(t.viaBlendMcg * 1000) / 1000 }));
 }
 
-/** The {date, doseMcg} series activeAmountMcg/levelSeries need for one compound on one route, including
+/** The {date, time, doseMcg} series activeAmountMcg/levelSeries need for one compound on one route, including
  *  what arrived via blends. */
-export function levelDoses(entries: IntakeEntry[], peptideId: number, route: AdminRoute | null): { date: string; doseMcg: number }[] {
-	return entries.filter((e) => e.peptideId === peptideId && e.route === route).map((e) => ({ date: e.date, doseMcg: e.mcg }));
+export function levelDoses(entries: IntakeEntry[], peptideId: number, route: AdminRoute | null): LevelDose[] {
+	return entries
+		.filter((e) => e.peptideId === peptideId && e.route === route)
+		.map((e) => ({ date: e.date, time: e.time, doseMcg: e.mcg }));
 }
 
 /** Distinct routes a compound has intake on (for per-route level curves). */

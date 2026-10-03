@@ -790,19 +790,24 @@ export function suggestHalfLifeHours(name: string): number | null {
 	return null;
 }
 
-/** When a dose logged on `date` is treated as having been administered. A dose row carries no reliable
- *  time of day, so everything anchors to local noon — one shared convention so the curve, the "now"
- *  readout and the chart's step edges all agree. */
-function doseInstantMs(date: string): number {
-	return new Date(`${date}T12:00:00`).getTime();
+/** A logged dose as the level math needs it. `time` is the logged "HH:MM" (local wall clock); rows without
+ *  one (logged before the field existed, or left blank) fall back to noon. */
+export type LevelDose = { doseMcg: number; date: string; time?: string | null };
+
+/** When a dose is treated as having been administered: its logged date + time of day, read as local time,
+ *  or local noon when no time was logged — one shared rule so the curve, the "now" readout and the chart's
+ *  step edges all agree. */
+function doseInstantMs(date: string, time?: string | null): number {
+	const m = time ? /^(\d{1,2}):(\d{2})/.exec(time.trim()) : null;
+	const hm = m && Number(m[1]) < 24 && Number(m[2]) < 60 ? `${m[1].padStart(2, '0')}:${m[2]}` : '12:00';
+	return new Date(`${date}T${hm}:00`).getTime();
 }
 
-/** Sum of each logged dose's exponential-decay remainder as of `now`. Doses are anchored to noon on
- *  their logged date (a dose row has no reliable time-of-day), so the curve moves smoothly through the
- *  day rather than stepping once at midnight. A future-dated dose is ignored; one more than 20
+/** Sum of each logged dose's exponential-decay remainder as of `now`. Doses are placed at their logged
+ *  date + time (noon when no time was logged — see doseInstantMs). A future-dated dose is ignored; one more than 20
  *  half-lives old is skipped rather than computed (< 1e-6 of the original amount either way). */
 export function activeAmountMcg(
-	doses: { doseMcg: number; date: string }[],
+	doses: LevelDose[],
 	halfLifeHours: number | null | undefined,
 	now: Date = new Date()
 ): number {
@@ -810,7 +815,7 @@ export function activeAmountMcg(
 	let total = 0;
 	for (const d of doses) {
 		if (!Number.isFinite(d.doseMcg) || d.doseMcg <= 0) continue;
-		const dosedAtMs = doseInstantMs(d.date);
+		const dosedAtMs = doseInstantMs(d.date, d.time);
 		if (!Number.isFinite(dosedAtMs)) continue;
 		const elapsedHours = (now.getTime() - dosedAtMs) / 3_600_000;
 		if (elapsedHours < 0) continue;
@@ -829,7 +834,7 @@ export type LevelPoint = { t: number; mcg: number };
  *  before it lands, one at it — so each dose reads as the vertical step it really is instead of a ramp
  *  smeared across however many hours the grid happens to step by. Returned ascending by time. */
 export function levelSeries(
-	doses: { doseMcg: number; date: string }[],
+	doses: LevelDose[],
 	halfLifeHours: number | null | undefined,
 	fromMs: number,
 	toMs: number,
@@ -841,7 +846,7 @@ export function levelSeries(
 	const step = (toMs - fromMs) / Math.max(1, maxSamples - 1);
 	for (let i = 0; i < maxSamples; i++) times.add(Math.round(fromMs + i * step));
 	for (const d of doses) {
-		const at = doseInstantMs(d.date);
+		const at = doseInstantMs(d.date, d.time);
 		if (!Number.isFinite(at) || at <= fromMs || at > toMs) continue;
 		times.add(at - 1);
 		times.add(at);
