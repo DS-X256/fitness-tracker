@@ -3,7 +3,7 @@
 	// list row — the glanceable version of LevelChart, same accent line + faint area, no axes. The full
 	// chart (with axes, hover and ranges) is one tap away on the compound page / levels screen, so this
 	// only carries the shape and a "now" marker; its accessible label states the current estimate.
-	import { formatLevel, levelSeries } from '$lib/utils/peptides';
+	import { formatLevel, levelSeries, type LevelDose } from '$lib/utils/peptides';
 
 	let {
 		doses,
@@ -12,7 +12,7 @@
 		days = 14,
 		label
 	}: {
-		doses: { date: string; doseMcg: number }[];
+		doses: LevelDose[];
 		halfLifeHours: number;
 		nowMs: number;
 		days?: number;
