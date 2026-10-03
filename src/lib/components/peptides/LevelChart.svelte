@@ -81,20 +81,119 @@
 	);
 	const activePoint = $derived(points.length > 0 ? points[active] : null);
 
-	function selectAtFraction(frac: number) {
-		if (points.length === 0) return;
-		const f = Math.min(1, Math.max(0, frac));
-		const t = fromMs + f * (toMs - fromMs);
+	// Magnet targets: each dose peak (a local maximum — between doses the curve only decays) plus the
+	// newest sample. Near one, the scrubber locks onto it; elsewhere it follows the finger freely.
+	const peakSet = $derived.by(() => {
+		const out = new Set<number>();
+		for (let i = 1; i < points.length; i++) {
+			const v = points[i].mcg;
+			if (v > 0 && v > points[i - 1].mcg && (i === points.length - 1 || v >= points[i + 1].mcg)) out.add(i);
+		}
+		return out;
+	});
+	const snapTargets = $derived.by(() => {
+		const out = [...peakSet];
+		if (points.length > 0 && out[out.length - 1] !== points.length - 1) out.push(points.length - 1);
+		return out;
+	});
+	/** Screen-px reach of a magnet; shrunk where targets crowd so the gaps between stay draggable. */
+	const SNAP_PX = 14;
+
+	let scrubEl: HTMLButtonElement | undefined = $state();
+	let dragId: number | null = null;
+	let lastSnap: number | null = null;
+
+	function pickAt(clientX: number) {
+		if (!scrubEl || points.length === 0) return;
+		const rect = scrubEl.getBoundingClientRect();
+		if (rect.width <= 0) return;
+		const plotLeft = rect.left + (padding.left / width) * rect.width;
+		const plotW = (innerW / width) * rect.width;
+		const span = toMs - fromMs || 1;
+		const pxOf = (i: number) => ((points[i].t - fromMs) / span) * plotW;
+		const x = Math.min(plotW, Math.max(0, clientX - plotLeft));
+
 		let best = 0;
 		for (let i = 1; i < points.length; i++) {
-			if (Math.abs(points[i].t - t) < Math.abs(points[best].t - t)) best = i;
+			if (Math.abs(pxOf(i) - x) < Math.abs(pxOf(best) - x)) best = i;
 		}
-		selected = best;
+
+		let snap: number | null = null;
+		let snapDist = Infinity;
+		for (let k = 0; k < snapTargets.length; k++) {
+			const px = pxOf(snapTargets[k]);
+			const prev = k > 0 ? pxOf(snapTargets[k - 1]) : -Infinity;
+			const next = k < snapTargets.length - 1 ? pxOf(snapTargets[k + 1]) : Infinity;
+			const reach = Math.min(SNAP_PX, 0.4 * (px - prev), 0.4 * (next - px));
+			const d = Math.abs(px - x);
+			if (d <= reach && d < snapDist) {
+				snap = snapTargets[k];
+				snapDist = d;
+			}
+		}
+
+		// A tiny tick on landing on a new magnet, where the device supports it (not iOS Safari).
+		if (snap != null && snap !== lastSnap && dragId != null) {
+			try {
+				navigator.vibrate?.(6);
+			} catch {
+				/* unsupported */
+			}
+		}
+		lastSnap = snap;
+		selected = snap ?? best;
 	}
 
-	function onMove(e: PointerEvent) {
-		const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-		if (rect.width > 0) selectAtFraction((e.clientX - rect.left) / rect.width);
+	function release() {
+		selected = null;
+		lastSnap = null;
+	}
+
+	function onPointerDown(e: PointerEvent) {
+		if (e.pointerType === 'mouse' && e.button !== 0) return;
+		dragId = e.pointerId;
+		// Keep receiving moves when the finger strays off the chart, so the drag isn't dropped mid-scrub.
+		scrubEl?.setPointerCapture(e.pointerId);
+		pickAt(e.clientX);
+	}
+	function onPointerMove(e: PointerEvent) {
+		// Mouse scrubs on hover too; touch/pen only while pressed.
+		if (e.pointerId === dragId || (dragId == null && e.pointerType === 'mouse')) pickAt(e.clientX);
+	}
+	function onPointerEnd(e: PointerEvent) {
+		if (e.pointerId !== dragId) return;
+		dragId = null;
+		if (e.pointerType !== 'mouse') release();
+	}
+
+	// touch-action: pan-y leaves vertical page scrolling to the browser, but iOS can still grab a drag
+	// that drifts vertically mid-scrub. Decide the gesture's direction once from its first movement and,
+	// if it's horizontal, own the whole touch so the page can't take it over.
+	function lockHorizontalDrag(node: HTMLElement) {
+		let startX = 0;
+		let startY = 0;
+		let mode: 'undecided' | 'scrub' | 'scroll' = 'undecided';
+		const onStart = (e: TouchEvent) => {
+			startX = e.touches[0].clientX;
+			startY = e.touches[0].clientY;
+			mode = 'undecided';
+		};
+		const onMove = (e: TouchEvent) => {
+			if (e.touches.length !== 1) return;
+			if (mode === 'undecided') {
+				const dx = Math.abs(e.touches[0].clientX - startX);
+				const dy = Math.abs(e.touches[0].clientY - startY);
+				if (dx < 3 && dy < 3) return;
+				mode = dx >= dy ? 'scrub' : 'scroll';
+			}
+			if (mode === 'scrub' && e.cancelable) e.preventDefault();
+		};
+		node.addEventListener('touchstart', onStart, { passive: true });
+		node.addEventListener('touchmove', onMove, { passive: false });
+		return () => {
+			node.removeEventListener('touchstart', onStart);
+			node.removeEventListener('touchmove', onMove);
+		};
 	}
 
 	function onKey(e: KeyboardEvent) {
@@ -118,7 +217,8 @@
 {#if points.length === 0}
 	<p class="py-8 text-center text-sm text-[var(--color-text-muted)]">Nothing to chart for this range.</p>
 {:else}
-	<div class="relative w-full">
+	<!-- select-none + no touch callout: a long press on the chart must not start an iOS text selection. -->
+	<div class="relative w-full select-none [-webkit-touch-callout:none]">
 		<svg
 			viewBox={`0 0 ${width} ${height}`}
 			class="w-full h-auto"
@@ -176,7 +276,7 @@
 				<circle
 					cx={cx}
 					cy={yOf(activePoint.mcg)}
-					r="3.5"
+					r={peakSet.has(active) ? 4.5 : 3.5}
 					class="fill-[var(--color-bg)] stroke-[var(--color-accent)]"
 					stroke-width="2"
 				/>
@@ -198,19 +298,28 @@
 				<p class="text-base font-semibold text-[var(--color-text)] tabular-nums">
 					{fmtValue(activePoint.mcg)}<span class="text-xs font-normal text-[var(--color-text-muted)]">{unitLabel}</span>
 				</p>
-				<p class="text-[0.6875rem] text-[var(--color-text-muted)] tabular-nums">{fmtInstant(activePoint.t)}</p>
+				<p class="text-[0.6875rem] text-[var(--color-text-muted)] tabular-nums">
+					{fmtInstant(activePoint.t)}{#if peakSet.has(active)}<span class="ml-1 font-medium text-[var(--color-accent)]">· peak</span>{/if}
+				</p>
 			</div>
 		{/if}
 
-		<!-- Transparent scrub target over the plot area: pointer to drag a readout, arrow keys to step. -->
+		<!-- Transparent scrub target over the whole chart: pointer to drag a readout (snapping to dose peaks),
+		     arrow keys to step. -->
 		<button
+			bind:this={scrubEl}
+			{@attach lockHorizontalDrag}
 			type="button"
 			aria-label="Scrub the estimated level curve"
-			class="absolute cursor-col-resize"
-			style={`left:${(padding.left / width) * 100}%;right:${(padding.right / width) * 100}%;top:${(padding.top / height) * 100}%;bottom:${(padding.bottom / height) * 100}%`}
-			onpointerdown={onMove}
-			onpointermove={onMove}
-			onpointerleave={() => (selected = null)}
+			class="absolute inset-0 cursor-col-resize touch-pan-y [-webkit-tap-highlight-color:transparent]"
+			onpointerdown={onPointerDown}
+			onpointermove={onPointerMove}
+			onpointerup={onPointerEnd}
+			onpointercancel={onPointerEnd}
+			onpointerleave={() => {
+				if (dragId == null) release();
+			}}
+			oncontextmenu={(e) => e.preventDefault()}
 			onkeydown={onKey}
 		></button>
 	</div>
