@@ -26,7 +26,7 @@ COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/build ./build
 COPY package.json ./
 COPY drizzle ./drizzle
-COPY scripts/migrate.js ./scripts/migrate.js
+COPY scripts ./scripts
 
 EXPOSE 3000
 CMD ["sh", "-c", "node scripts/migrate.js && node build/index.js"]

@@ -16,7 +16,7 @@ installable as a PWA, and packaged to run on a home server with one command.
   encrypted at rest, and stripped of location/camera metadata (see Security notes).
 - **Peptide tracker** — compounds, dose/schedule protocols (editable any time, even mid-cycle),
   inventory vials, and a dose log — everything logged is editable in place, not just deletable.
-  Encrypted at rest like body data, with its own private, encrypted **progress photo** gallery per
+  Encrypted at rest with the configured key, with its own private, encrypted **progress photo** gallery per
   compound.
 
 ## Requirements
@@ -46,8 +46,8 @@ Edit `.env` and set:
   echo "PHOTO_ENCRYPTION_KEY=$(openssl rand -hex 32)" >> .env
   ```
 
-  Everything except progress photos works without it. **Back this key up together with your database**
-  — if you lose it, existing photos can't be decrypted. Keep the same key across upgrades.
+  Peptide records and private photo upload/viewing require this key. **Back this key up together with your database**
+  — if you lose it, existing photos and peptide records can't be decrypted. Keep the same key across upgrades.
 
 Then:
 
@@ -61,13 +61,36 @@ you expect to use this — it's been built with a household of ~5 in mind) signs
 own account directly in the app. Add it to your phone's home screen (Safari/Chrome →
 Share/Menu → "Add to Home Screen") to install it as a PWA.
 
-Your data lives in a Docker named volume (`fitness-data`, mounted at `/data` in the
-container) — it survives `docker compose down`, rebuilds, and image upgrades. To back it
-up, copy `/data/fitness.db` out of the volume, e.g.:
+Your data lives in a Docker named volume (`fitness-data`, mounted at `/data`). It survives
+container rebuilds and upgrades. Back up **the database, all uploads, and the original encryption
+key**. Do not copy a running SQLite `.db` alone: committed data can still be in its WAL file.
+
+Stop the app to keep the database and photo files consistent, then create a verified snapshot:
 
 ```sh
-docker compose cp fitness-tracker:/data/fitness.db ./backup-$(date +%F).db
+docker compose stop fitness-tracker
+docker compose run --rm --no-deps --entrypoint node fitness-tracker scripts/backup.js --quiesced /data/backup-2026-10-09
+docker compose cp fitness-tracker:/data/backup-2026-10-09 ./backup-2026-10-09
+docker compose start fitness-tracker
 ```
+
+Use a new dated directory for each backup. If the backup command fails, investigate it before
+restarting; it refuses to overwrite an existing snapshot. Copy the result off the host and keep
+the original `PHOTO_ENCRYPTION_KEY` in secure storage separately. The script deliberately never
+prints or includes keys. Backups contain sensitive plaintext measurements and meal data as well
+as encrypted photos/peptide records; restrict access to them.
+
+For local development, stop the dev server and run `npm run backup -- --quiesced /path/to/new-backup`.
+The flag confirms that **all writers have been stopped**; it does not stop them for you.
+
+**Restore drill:** use a disposable instance/empty volume, with the app stopped. Copy the snapshot's
+`fitness.db` and `uploads/` directory into `/data/` (or the configured database directory locally),
+restore the original key and timezone in its configuration, then start the app. Never overlay a
+live database or keep stale `fitness.db-wal`/`fitness.db-shm` from a previous database. Container
+startup applies migrations. Check login, historical logs, and viewing both body and peptide photos
+as their owner. A new encryption key cannot recover old records. `npm test` includes an automated
+WAL-backed restore and private-photo decryption check; repeat the drill on your actual host before
+relying on a backup. Take a fresh backup before every upgrade.
 
 To upgrade after pulling new code:
 
@@ -142,7 +165,7 @@ regardless of the private-network assumption:
 
 - **Encrypted at rest** with AES-256-GCM. Set `PHOTO_ENCRYPTION_KEY` in `.env` to a 32-byte key
   (`openssl rand -base64 32`); the on-disk files are ciphertext, decrypted only when served to the
-  owner. If the key is unset, photo upload/viewing is disabled and the rest of the app is unaffected.
+  owner. If the key is unset, private photo upload/viewing and peptide tracking are disabled.
   **Back the key up alongside your database** — losing it makes existing photos unrecoverable.
 - **Metadata stripped** — EXIF/XMP/IPTC (including phone GPS coordinates) is removed before storage.
 - **Strictly private** — unlike meals and the shopping list, progress photos can never be shared;
@@ -172,3 +195,29 @@ container. Passwords are hashed with Node's built-in `scrypt` (no auth dependenc
 Tailwind CSS v4 for styling, design tokens defined as CSS variables in
 `src/routes/layout.css`. Zero UI/charting dependencies beyond that — the progress chart
 is hand-rolled inline SVG.
+
+## Verification
+
+```sh
+npm ci
+npm run check
+npm test
+npm run build
+npx playwright install chromium
+npm run test:e2e
+npm audit
+```
+
+Tests use temporary migration-created databases and synthetic data. Browser tests start their own
+production server; use `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium` when using a system browser.
+CI runs these checks on pushes and pull requests. Configuring them as required merge checks is a
+repository setting.
+
+New uploads are decoded, oriented and re-encoded without EXIF/XMP/IPTC metadata. Existing stored
+photos are not silently rewritten: re-upload any old meal photos that might contain location data.
+Failed account-photo cleanup is recorded under `uploads/account-cleanup/`, logged, and retried on
+server startup or the next account deletion. Keep these manifests until cleanup succeeds.
+
+Security overrides in `package.json` pin compatible fixes for `devalue`, `cookie`, `source-map-js`
+and the development-only esbuild dependency of Drizzle's loader. Keep audit and browser/form tests
+passing when refreshing them; do not use `npm audit fix --force` to downgrade the app framework.
