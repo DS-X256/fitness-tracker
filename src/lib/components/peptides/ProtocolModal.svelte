@@ -12,7 +12,7 @@
 	import BlendMixEditor from './BlendMixEditor.svelte';
 	import BlendBreakdown from './BlendBreakdown.svelte';
 	import { todayIso } from '$lib/utils/todayIso';
-	import { ADMIN_ROUTES, formatDose, splitBlendDose, type AdminRoute, type BlendComponent } from '$lib/utils/peptides';
+	import { ADMIN_ROUTES, blendRatioSummary, formatDose, splitBlendDose, type AdminRoute, type BlendComponent } from '$lib/utils/peptides';
 	import { FREQUENCY_LABELS, type Frequency } from '$lib/utils/peptideSchedule';
 
 	type CompoundOpt = {
@@ -187,11 +187,16 @@
 			<div class="rounded-[var(--radius-md)] border border-[var(--color-border)] px-3.5 py-2.5">
 				<p class="text-sm font-medium text-[var(--color-text)]">Blend mix</p>
 				{#if !customMix}
+					{#if compound.components?.length}
+						<p class="text-xs text-[var(--color-text-muted)] mt-1">
+							Default mix: {blendRatioSummary(compound.components)}{#if compound.vialMg}{' '}({compound.vialMg} mg vial){/if}
+						</p>
+					{:else}
+						<p class="text-xs text-[var(--color-text-muted)] mt-1">Uses {compound.name}'s default mix.</p>
+					{/if}
 					{#if defaultSplit}
 						<p class="text-xs text-[var(--color-text-muted)] mt-1">Each {formatDose(dose)} dose is recorded as</p>
 						<BlendBreakdown portions={defaultSplit} />
-					{:else}
-						<p class="text-xs text-[var(--color-text-muted)] mt-1">Uses {compound.name}'s default mix.</p>
 					{/if}
 				{/if}
 				<label class="mt-2 flex items-center gap-2.5 text-sm text-[var(--color-text)]">
