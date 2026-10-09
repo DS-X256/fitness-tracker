@@ -455,6 +455,15 @@ export const BLEND_PRESETS: BlendPreset[] = [
 			{ name: 'Semaglutide', labelMg: 5 },
 			{ name: 'Cagrilintide', labelMg: 5 }
 		]
+	},
+	{
+		name: 'Semax / Selank',
+		category: 'other',
+		vialMg: 20,
+		components: [
+			{ name: 'Semax', labelMg: 10 },
+			{ name: 'Selank', labelMg: 10 }
+		]
 	}
 ];
 
