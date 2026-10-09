@@ -589,8 +589,10 @@ export function blendPortionSummary(portions: BlendPortion[]): string {
  *  Matching (suggestHalfLifeHours) is case-insensitive, treats spaces/hyphens/underscores alike ("PT 141" =
  *  "pt-141") and takes the FIRST key found in the name, so a more specific key must precede one it contains:
  *  the no-DAC spellings come first, then the DAC ones, then bare "CJC-1295" (= no DAC, the mod-GRF 1-29 form
- *  the CJC/Ipamorelin blend uses). Brand names map to their compound. Still absent — nothing quotable even
- *  from peptide references: Selank, PEG-MGF/MGF. Adding keys? Bump HALF_LIFE_TABLE_VERSION. */
+ *  the CJC/Ipamorelin blend uses). Brand names map to their compound. Semax/Selank use low-confidence
+ *  forum claims about the parent peptide in blood, not verified route-specific human terminal PK;
+ *  duration of effects cannot substitute for elimination half-life. PEG-MGF/MGF remain absent.
+ *  Adding keys? Bump HALF_LIFE_TABLE_VERSION. */
 export const STANDARD_HALF_LIVES_HOURS: Record<string, number> = {
 	// CJC-1295: without DAC (mod-GRF 1-29) ~30 min; with DAC (albumin-bound) ~6-8 days (5.8-8.1 d in
 	// Teichman 2006). Two separate preset compounds, "CJC-1295 (no DAC)" and "CJC-1295 (with DAC)".
@@ -732,21 +734,27 @@ export const STANDARD_HALF_LIVES_HOURS: Record<string, number> = {
 	epithalon: 0.5,
 	dsip: 0.25, // community: ~15 min
 	'delta sleep': 0.25,
-	semax: 0.08, // community: ~2-8 min
+	// Community claims found in search-indexed Reddit comments (2026-10-09); full threads could not be
+	// fetched. These refer to the parent peptide in blood, not CNS effect duration or modified analogues.
+	// https://www.reddit.com/r/Nootropics/comments/4xke9l/injecting_russian_semax/ — "about 5 minutes"
+	semax: 0.08, // community: ~5 min; preserves the previous approximate default
+	// https://www.reddit.com/r/Nootropics/comments/35hv9h/selank_naselank_halflife/ — "about 10min"
+	selank: 10 / 60, // community: ~10 min; replaces the unsupported 2-min placeholder
 	'vasoactive intestinal': 0.03, // ~1-2 min
 	vip: 0.03
 };
 
 /** Bumped whenever STANDARD_HALF_LIVES_HOURS gains keys or changes a value, so backfillStandardHalfLives
  *  (peptidePresets.ts) offers the new values once to compounds seeded under an older table. */
-export const HALF_LIFE_TABLE_VERSION = 3;
+export const HALF_LIFE_TABLE_VERSION = 5;
 
 /** Table values a later version CHANGED (not just added). A compound marked with an older table version
  *  whose name matches one of `keys` and still holds exactly `previousHours` is taken to carry the untouched
  *  old default and is moved to the current table value by backfillStandardHalfLives; any other value is the
  *  user's own and stays. Adding one? Bump HALF_LIFE_TABLE_VERSION to `version`. */
 export const HALF_LIFE_REVISIONS: { version: number; keys: string[]; previousHours: number }[] = [
-	{ version: 3, keys: ['tb 500', 'tb500', 'thymosin beta'], previousHours: 72 }
+	{ version: 3, keys: ['tb 500', 'tb500', 'thymosin beta'], previousHours: 72 },
+	{ version: 5, keys: ['selank'], previousHours: 2 / 60 }
 ];
 
 /** Lowercase, with runs of spaces/hyphens/underscores collapsed to one space, so "CJC-1295 no-DAC",
