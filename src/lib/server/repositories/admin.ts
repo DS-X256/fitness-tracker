@@ -166,15 +166,17 @@ export async function deleteUser(actingId: number, userId: number) {
 	if (!target) return;
 	if (target.isAdmin && (await countAdmins()) <= 1) throw new Error('Cannot delete the last admin');
 
-	// Collect on-disk files before the rows are gone (deletion doesn't touch disk).
-	const photos = await db.select({ filename: progressPhotos.filename }).from(progressPhotos).where(eq(progressPhotos.userId, userId));
-	const mealPhotos = await db
+	// Keep collection, manifest persistence and row deletion synchronous: another upload must not
+	// commit between the file snapshot and the deletion transaction. In-flight uploads whose insert
+	// resumes after deletion fail the user FK and clean up their own file.
+	const photos = db.select({ filename: progressPhotos.filename }).from(progressPhotos).where(eq(progressPhotos.userId, userId)).all();
+	const mealPhotos = db
 		.select({ filename: meals.photoFilename })
 		.from(meals)
-		.where(and(eq(meals.userId, userId), isNotNull(meals.photoFilename)));
+		.where(and(eq(meals.userId, userId), isNotNull(meals.photoFilename))).all();
 
-	const peptideFiles = await db.select({ filename: peptidePhotos.filename }).from(peptidePhotos).where(eq(peptidePhotos.userId, userId));
-	await queueAccountPhotoCleanup(userId, {
+	const peptideFiles = db.select({ filename: peptidePhotos.filename }).from(peptidePhotos).where(eq(peptidePhotos.userId, userId)).all();
+	queueAccountPhotoCleanup(userId, {
 		'progress-photos': photos.map((p) => p.filename),
 		'meal-photos': mealPhotos.flatMap((p) => p.filename ? [p.filename] : []),
 		'peptide-photos': peptideFiles.map((p) => p.filename)
