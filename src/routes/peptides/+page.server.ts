@@ -15,13 +15,14 @@ import { isValidIsoDate } from '$lib/utils/isoDate';
 import { parseDecimal } from '$lib/utils/parseDecimal';
 import { daysBetween } from '$lib/utils/peptideSchedule';
 import { syringeUnits } from '$lib/utils/reconstitution';
-import { mcgPerActuation, actuationsForDose, containerConcentrationMgMl } from '$lib/utils/delivery';
+import { mcgPerActuation, exactWholeUnits, containerConcentrationMgMl } from '$lib/utils/delivery';
 import {
 	isAdminRoute,
 	isApplicationSite,
 	isDoseKind,
 	isInjectionRoute,
 	isMeasureUnit,
+	measureUnitForContainerForm,
 	sanitizeEffects,
 	suggestNextSite,
 	type ApplicationSite,
@@ -194,19 +195,17 @@ export const actions: Actions = {
 		if (route && isInjectionRoute(route) && container?.form === 'vial' && container.vialMg != null && container.bacWaterMl) {
 			measureCount = syringeUnits({ vialMg: container.vialMg, bacWaterMl: container.bacWaterMl, doseMcg });
 			measureUnit = 'unit';
-		} else if (route === 'intranasal' && container?.form === 'nasal_spray' && container.actuationVolumeUl) {
+		} else if (container && (container.form === 'nasal_spray' || container.form === 'serum') && container.actuationVolumeUl) {
 			const conc = containerConcentrationMgMl(container);
 			if (conc != null) {
-				const mpa = mcgPerActuation(conc, container.actuationVolumeUl);
-				if (mpa > 0) {
-					measureCount = actuationsForDose(doseMcg, mpa).whole;
-					measureUnit = 'spray';
-				}
+				measureCount = exactWholeUnits(doseMcg, mcgPerActuation(conc, container.actuationVolumeUl));
+				measureUnit = measureUnitForContainerForm(container.form);
+				if (measureCount == null) return fail(400, { error: 'This target needs a partial actuation. Adjust the dose to record the actual amount.', adjustProtocolId: proto.id });
 			}
-		} else if (route === 'transdermal' && container?.form === 'patches') {
-			// One application is one patch, whatever its declared strength; doseMcg stays the target.
-			measureCount = 1;
-			measureUnit = 'patch';
+		} else if (container && (container.form === 'capsules' || container.form === 'patches')) {
+			measureCount = container.unitMassMcg ? exactWholeUnits(doseMcg, container.unitMassMcg) : null;
+			if (measureCount == null) return fail(400, { error: 'Confirm the actual whole-unit quantity and dose in Adjust.', adjustProtocolId: proto.id });
+			measureUnit = measureUnitForContainerForm(container.form);
 		}
 
 		try {

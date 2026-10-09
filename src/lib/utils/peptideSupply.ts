@@ -28,27 +28,28 @@ const HORIZON_DAYS = 365;
 
 /** Projects when `remainingMcg` runs out given the protocols drawing on it (usually one). Doses already
  *  logged today are assumed to be in `remainingMcg`, so today's still-pending slots are counted by the
- *  caller passing `pendingTodaySlots`; by default the whole of today's schedule counts. */
+ *  caller passing `pendingTodaySlotsByProtocol` (in the same order as protocols); by default the whole of today's schedule counts. */
 export function projectRunout(
 	remainingMcg: number,
 	protocols: SupplyProtocol[],
 	today: string,
-	opts: { pendingTodaySlots?: number } = {}
+	opts: { pendingTodaySlotsByProtocol?: readonly (number | undefined)[] } = {}
 ): RunoutProjection {
 	let left = Math.max(0, remainingMcg);
 	let doses = 0;
 	let consumedAnything = false;
 	for (let i = 0; i <= HORIZON_DAYS; i++) {
 		const date = shiftIsoDate(today, i);
-		for (const p of protocols) {
+		for (const [index, p] of protocols.entries()) {
 			let slots: number;
 			if (p.frequency === 'x_per_week') {
 				slots = isWithinActiveSpan(p, date) ? (p.perWeek ?? 0) / 7 : 0;
 			} else {
 				slots = slotsOn(p, date);
 			}
-			if (i === 0 && opts.pendingTodaySlots != null && p.frequency !== 'x_per_week') {
-				slots = Math.min(slots, opts.pendingTodaySlots);
+			const pending = opts.pendingTodaySlotsByProtocol?.[index];
+			if (i === 0 && pending != null && p.frequency !== 'x_per_week') {
+				slots = Math.min(slots, Math.max(0, pending));
 			}
 			if (slots <= 0) continue;
 			const per = targetDoseOn(p, date);

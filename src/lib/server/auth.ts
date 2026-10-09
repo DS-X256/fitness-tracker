@@ -28,8 +28,10 @@ export async function verifyPassword(password: string, stored: string): Promise<
 
 export async function createUser(username: string, password: string) {
 	const passwordHash = await hashPassword(password);
-	const [user] = await db.insert(users).values({ username, passwordHash }).returning();
-	return user;
+	return db.transaction((tx) => {
+		const firstAccount = !tx.select({ id: users.id }).from(users).limit(1).get();
+		return tx.insert(users).values({ username, passwordHash, isAdmin: firstAccount }).returning().get();
+	}, { behavior: 'immediate' });
 }
 
 export async function findUserByUsername(username: string): Promise<(SessionUser & { passwordHash: string }) | null> {

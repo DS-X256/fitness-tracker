@@ -31,8 +31,9 @@ npm run db:studio            # Drizzle Studio GUI against the local DB
 npm run build && npm run preview
 ```
 
-There is no test suite and no lint script configured — `npm run check` (svelte-check) is the
-only verification step available.
+Run `npm test` for calculation, migration-backed repository, image privacy and backup-restore
+regressions. Run `npm run build && npm run test:e2e` for production HTTP/browser checks.
+There is no lint script. CI also runs `npm run check` and `npm audit`.
 
 Requires Node.js 22+. Docker Compose is the intended production path (`docker compose up -d
 --build`); migrations run automatically on container start via `scripts/migrate.js`.

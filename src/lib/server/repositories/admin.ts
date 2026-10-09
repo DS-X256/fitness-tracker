@@ -15,6 +15,7 @@ import {
 	meals,
 	products,
 	progressPhotos,
+	peptidePhotos,
 	sessions,
 	users,
 	workoutSessions
@@ -23,8 +24,7 @@ import { createUser, hashPassword } from '$lib/server/auth';
 import { validatePassword, validateUsername } from '$lib/server/validation';
 import { seedCatalog, seedPresetsForAllUsers, seedPresetsForUser } from '$lib/server/presets';
 import { photoEncryptionAvailable } from '$lib/server/crypto/photoCrypto';
-import { deleteProgressPhotoFile } from '$lib/server/storage/progressPhotos';
-import { deleteMealPhotoFile } from '$lib/server/storage/mealPhotos';
+import { queueAccountPhotoCleanup, retryAccountPhotoCleanup } from '$lib/server/storage/accountCleanup';
 
 /** Promotes the earliest-created account to admin if no admin exists yet. Idempotent — a no-op once
  *  any admin is present. Runs fire-and-forget on server startup (hooks.server.ts). */
@@ -166,12 +166,21 @@ export async function deleteUser(actingId: number, userId: number) {
 	if (!target) return;
 	if (target.isAdmin && (await countAdmins()) <= 1) throw new Error('Cannot delete the last admin');
 
-	// Collect on-disk files before the rows are gone (deletion doesn't touch disk).
-	const photos = await db.select({ filename: progressPhotos.filename }).from(progressPhotos).where(eq(progressPhotos.userId, userId));
-	const mealPhotos = await db
+	// Keep collection, manifest persistence and row deletion synchronous: another upload must not
+	// commit between the file snapshot and the deletion transaction. In-flight uploads whose insert
+	// resumes after deletion fail the user FK and clean up their own file.
+	const photos = db.select({ filename: progressPhotos.filename }).from(progressPhotos).where(eq(progressPhotos.userId, userId)).all();
+	const mealPhotos = db
 		.select({ filename: meals.photoFilename })
 		.from(meals)
-		.where(and(eq(meals.userId, userId), isNotNull(meals.photoFilename)));
+		.where(and(eq(meals.userId, userId), isNotNull(meals.photoFilename))).all();
+
+	const peptideFiles = db.select({ filename: peptidePhotos.filename }).from(peptidePhotos).where(eq(peptidePhotos.userId, userId)).all();
+	queueAccountPhotoCleanup(userId, {
+		'progress-photos': photos.map((p) => p.filename),
+		'meal-photos': mealPhotos.flatMap((p) => p.filename ? [p.filename] : []),
+		'peptide-photos': peptideFiles.map((p) => p.filename)
+	});
 
 	// Delete all of the user's data explicitly, in child→parent order, inside one transaction. We do NOT
 	// rely on ON DELETE cascade: categories/exercises/meals/workout_sessions still reference users with
@@ -223,13 +232,13 @@ export async function deleteUser(actingId: number, userId: number) {
 		tx.run(sql`delete from peptide_doses where user_id = ${u}`);
 		tx.run(sql`delete from peptide_protocols where user_id = ${u}`);
 		tx.run(sql`delete from peptide_vials where user_id = ${u}`);
+		tx.run(sql`delete from peptide_photos where user_id = ${u}`);
 		tx.run(sql`delete from peptides where user_id = ${u}`);
 		tx.run(sql`delete from sessions where user_id = ${u}`);
 		tx.run(sql`delete from users where id = ${u}`);
 	});
 
-	for (const p of photos) await deleteProgressPhotoFile(p.filename);
-	for (const mp of mealPhotos) await deleteMealPhotoFile(mp.filename);
+	await retryAccountPhotoCleanup();
 }
 
 export async function reseedCatalog() {

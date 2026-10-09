@@ -1,3 +1,5 @@
+import { isValidIsoDate } from '$lib/utils/isoDate';
+import { validateWorkoutSet } from '$lib/utils/workoutValidation';
 import { db } from '$lib/server/db';
 import { workoutSessions, workoutSets, exercises } from '$lib/server/db/schema';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
@@ -21,6 +23,7 @@ export async function listSessions(userId: number) {
 }
 
 export async function createSession(userId: number, date: string, notes?: string | null, planId?: number | null) {
+	if (!isValidIsoDate(date)) throw new Error('Invalid date');
 	const [row] = await db
 		.insert(workoutSessions)
 		.values({ userId, date, notes: notes?.trim() || null, planId: planId ?? null, createdAt: new Date() })
@@ -29,6 +32,7 @@ export async function createSession(userId: number, date: string, notes?: string
 }
 
 export async function updateSession(userId: number, id: number, date: string, notes?: string | null) {
+	if (!isValidIsoDate(date)) throw new Error('Invalid date');
 	await db
 		.update(workoutSessions)
 		.set({ date, notes: notes?.trim() || null })
@@ -88,6 +92,7 @@ export async function addSet(
 	exerciseId: number,
 	data: { reps: number; weight: number; rpe?: number | null; notes?: string | null }
 ) {
+	validateWorkoutSet(data);
 	const [session] = await db
 		.select({ id: workoutSessions.id })
 		.from(workoutSessions)
@@ -135,6 +140,7 @@ export async function updateSet(
 	id: number,
 	data: { reps: number; weight: number; rpe?: number | null; notes?: string | null }
 ) {
+	validateWorkoutSet(data);
 	if (!(await ownsSet(userId, id))) return;
 	await db
 		.update(workoutSets)
