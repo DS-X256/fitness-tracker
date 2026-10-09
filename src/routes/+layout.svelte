@@ -8,7 +8,7 @@
 
 	let { children } = $props();
 
-	const showChrome = $derived(page.url.pathname !== '/login');
+	const showChrome = $derived(!!page.data.user);
 	// The assistant is a full-height chat: it owns the space between header and bottom nav and manages
 	// its own scrolling, so main becomes a flex column and drops the usual bottom-nav padding.
 	const isAssistant = $derived(page.url.pathname === '/assistant');
