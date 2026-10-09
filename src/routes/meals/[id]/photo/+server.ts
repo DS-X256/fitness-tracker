@@ -32,7 +32,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 				// Belt-and-braces against a disguised non-image slipping through: never let the
 				// browser second-guess the declared type into something executable.
 				'X-Content-Type-Options': 'nosniff',
-				'Cache-Control': 'private, max-age=31536000, immutable'
+				'Cache-Control': 'private, no-store'
 			}
 		});
 	} catch {

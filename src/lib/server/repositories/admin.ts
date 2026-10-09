@@ -15,6 +15,7 @@ import {
 	meals,
 	products,
 	progressPhotos,
+	peptidePhotos,
 	sessions,
 	users,
 	workoutSessions
@@ -23,8 +24,7 @@ import { createUser, hashPassword } from '$lib/server/auth';
 import { validatePassword, validateUsername } from '$lib/server/validation';
 import { seedCatalog, seedPresetsForAllUsers, seedPresetsForUser } from '$lib/server/presets';
 import { photoEncryptionAvailable } from '$lib/server/crypto/photoCrypto';
-import { deleteProgressPhotoFile } from '$lib/server/storage/progressPhotos';
-import { deleteMealPhotoFile } from '$lib/server/storage/mealPhotos';
+import { queueAccountPhotoCleanup, retryAccountPhotoCleanup } from '$lib/server/storage/accountCleanup';
 
 /** Promotes the earliest-created account to admin if no admin exists yet. Idempotent — a no-op once
  *  any admin is present. Runs fire-and-forget on server startup (hooks.server.ts). */
@@ -173,6 +173,13 @@ export async function deleteUser(actingId: number, userId: number) {
 		.from(meals)
 		.where(and(eq(meals.userId, userId), isNotNull(meals.photoFilename)));
 
+	const peptideFiles = await db.select({ filename: peptidePhotos.filename }).from(peptidePhotos).where(eq(peptidePhotos.userId, userId));
+	await queueAccountPhotoCleanup(userId, {
+		'progress-photos': photos.map((p) => p.filename),
+		'meal-photos': mealPhotos.flatMap((p) => p.filename ? [p.filename] : []),
+		'peptide-photos': peptideFiles.map((p) => p.filename)
+	});
+
 	// Delete all of the user's data explicitly, in child→parent order, inside one transaction. We do NOT
 	// rely on ON DELETE cascade: categories/exercises/meals/workout_sessions still reference users with
 	// NO ACTION in the migration-built schema (schema.ts says cascade, but the migrations never applied
@@ -223,13 +230,13 @@ export async function deleteUser(actingId: number, userId: number) {
 		tx.run(sql`delete from peptide_doses where user_id = ${u}`);
 		tx.run(sql`delete from peptide_protocols where user_id = ${u}`);
 		tx.run(sql`delete from peptide_vials where user_id = ${u}`);
+		tx.run(sql`delete from peptide_photos where user_id = ${u}`);
 		tx.run(sql`delete from peptides where user_id = ${u}`);
 		tx.run(sql`delete from sessions where user_id = ${u}`);
 		tx.run(sql`delete from users where id = ${u}`);
 	});
 
-	for (const p of photos) await deleteProgressPhotoFile(p.filename);
-	for (const mp of mealPhotos) await deleteMealPhotoFile(mp.filename);
+	await retryAccountPhotoCleanup();
 }
 
 export async function reseedCatalog() {

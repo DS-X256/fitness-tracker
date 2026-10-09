@@ -50,6 +50,10 @@
 			return async ({ result, update }: { result: { type: string; data?: Record<string, unknown> }; update: () => Promise<void> }) => {
 				busy = null;
 				if (result.type === 'success' && key.startsWith('log-')) celebrate();
+				if (result.type === 'failure' && typeof result.data?.adjustProtocolId === 'number') {
+					const row = rows.find((r) => r.protocolId === result.data?.adjustProtocolId);
+					if (row) onAdjust(row);
+				}
 				if (result.type === 'failure') error = typeof result.data?.error === 'string' ? result.data.error : 'Something went wrong';
 				await update();
 			};

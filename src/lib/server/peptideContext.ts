@@ -122,11 +122,11 @@ export function vialStatus(ctx: PeptideContext, v: VialWithUsage): VialStatus {
 
 	let projection: RunoutProjection | null = null;
 	if (remainingMcg != null && protos.length > 0 && !v.depleted) {
-		const pending = protos.reduce((sum, p) => {
+		const pending = protos.map((p) => {
 			const t = todayFor(ctx, p);
-			return sum + (t.mode === 'slots' ? t.pending : 0);
-		}, 0);
-		projection = projectRunout(remainingMcg, protos, ctx.today, { pendingTodaySlots: pending });
+			return t.mode === 'slots' ? t.pending : undefined;
+		});
+		projection = projectRunout(remainingMcg, protos, ctx.today, { pendingTodaySlotsByProtocol: pending });
 	}
 
 	let expiry: VialStatus['expiry'] = null;

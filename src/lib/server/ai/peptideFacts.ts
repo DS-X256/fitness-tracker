@@ -30,7 +30,7 @@ import {
 import { blendRatioSummary, CONTAINER_FORM_LABELS, effectLabel, formatDose, ROUTE_LABELS, SEVERITY_LABELS, siteLabel } from '$lib/utils/peptides';
 
 /** Bump when the facts' shape or meaning changes, so cached summaries built from the old shape go stale. */
-export const FACTS_VERSION = 2;
+export const FACTS_VERSION = 3;
 
 export function serverTimeZone(): string {
 	try {
@@ -79,7 +79,7 @@ export function buildPeptideFacts(ctx: PeptideContext, opts: { windowDays?: numb
 	const blends = ctx.peptides
 		.filter((p) => p.isBlend)
 		.map((b) => {
-			const doses = ctx.doses.filter((d) => d.peptideId === b.id && d.kind === 'dose' && d.date >= from);
+			const doses = ctx.doses.filter((d) => d.peptideId === b.id && d.kind === 'dose' && d.date >= from && d.date <= today);
 			return {
 				blend: b.name,
 				mix: b.components ? blendRatioSummary(b.components) : null,
@@ -90,7 +90,7 @@ export function buildPeptideFacts(ctx: PeptideContext, opts: { windowDays?: numb
 		.filter((b) => b.dosesInWindow > 0);
 
 	const protocols = ctx.protocols
-		.filter((p) => p.active || ctx.doses.some((d) => ctx.assigned.get(d.id) === p.id && d.date >= from))
+		.filter((p) => p.active || ctx.doses.some((d) => ctx.assigned.get(d.id) === p.id && d.date >= from && d.date <= today))
 		.map((p) => {
 			const a = adherenceFor(ctx, p, from);
 			const state = todayFor(ctx, p);
@@ -98,7 +98,7 @@ export function buildPeptideFacts(ctx: PeptideContext, opts: { windowDays?: numb
 			const taper = taperOf(p);
 			const mix = mixFor(ctx, p);
 			const logged = ctx.doses
-				.filter((d) => ctx.assigned.get(d.id) === p.id && d.date >= from && (d.kind === 'dose' || d.kind === 'skip'))
+				.filter((d) => ctx.assigned.get(d.id) === p.id && d.date >= from && d.date <= today && (d.kind === 'dose' || d.kind === 'skip'))
 				.reverse() // oldest → newest
 				.map((d) => ({
 					date: d.date,
@@ -162,7 +162,7 @@ export function buildPeptideFacts(ctx: PeptideContext, opts: { windowDays?: numb
 
 	// Recent side-effect check-ins (tags only — free-text notes never go into these facts).
 	const effects = ctx.doses
-		.filter((d) => d.kind === 'dose' && d.date >= from && d.effects.length > 0)
+		.filter((d) => d.kind === 'dose' && d.date >= from && d.date <= today && d.effects.length > 0)
 		.map((d) => ({
 			date: d.date,
 			compound: nameOf(ctx, d.peptideId),

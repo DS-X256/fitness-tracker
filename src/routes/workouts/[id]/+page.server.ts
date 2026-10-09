@@ -70,7 +70,11 @@ export const actions: Actions = {
 		const date = String(form.get('date') ?? '').trim();
 		const notes = String(form.get('notes') ?? '');
 		if (!date) return fail(400, { error: 'Date is required' });
-		await updateSession(locals.user!.id, id, date, notes);
+		try {
+			await updateSession(locals.user!.id, id, date, notes);
+		} catch (e) {
+			return fail(400, { error: friendlyError(e, 'Could not update session') });
+		}
 	},
 
 	deleteSession: async ({ params, locals }) => {
@@ -97,10 +101,10 @@ export const actions: Actions = {
 		const exerciseId = Number(form.get('exerciseId'));
 		const repsRaw = form.get('reps');
 		const weightRaw = form.get('weight');
-		if (!exerciseId || repsRaw === null || weightRaw === null) {
+		if (!exerciseId || repsRaw === null || weightRaw === null || !String(repsRaw).trim() || !String(weightRaw).trim()) {
 			return fail(400, { error: 'Invalid set data' });
 		}
-		const reps = Math.round(Number(repsRaw));
+		const reps = Number(repsRaw);
 		const weight = Number(weightRaw);
 		if (!Number.isFinite(reps) || !Number.isFinite(weight)) {
 			return fail(400, { error: 'Invalid set data' });
@@ -115,15 +119,19 @@ export const actions: Actions = {
 	updateSet: async ({ request, locals }) => {
 		const form = await request.formData();
 		const id = Number(form.get('id'));
-		const reps = Math.round(Number(form.get('reps')));
+		const reps = Number(form.get('reps'));
 		const weight = Number(form.get('weight'));
 		const rpeRaw = form.get('rpe');
 		const rpe = rpeRaw !== null && String(rpeRaw).trim() !== '' ? Number(rpeRaw) : null;
 		const notes = String(form.get('notes') ?? '');
-		if (!id || !Number.isFinite(reps) || !Number.isFinite(weight)) {
+		if (!id || !String(form.get('reps') ?? '').trim() || !String(form.get('weight') ?? '').trim() || !Number.isFinite(reps) || !Number.isFinite(weight)) {
 			return fail(400, { error: 'Invalid set data' });
 		}
-		await updateSet(locals.user!.id, id, { reps, weight, rpe, notes });
+		try {
+			await updateSet(locals.user!.id, id, { reps, weight, rpe, notes });
+		} catch (e) {
+			return fail(400, { error: friendlyError(e, 'Could not update set') });
+		}
 	},
 
 	deleteSet: async ({ request, locals }) => {

@@ -31,7 +31,7 @@ export async function saveProgressPhoto(userId: number, file: File): Promise<Sav
 	const ext = sniffImageExt(raw);
 	if (!ext) throw new Error('Photo must be a JPEG, PNG, or WebP image');
 
-	const stripped = stripImageMetadata(raw, ext);
+	const stripped = await stripImageMetadata(raw, ext);
 	if (!sniffImageExt(stripped)) throw new Error('Photo could not be processed'); // strip must not corrupt it
 
 	const filename = `${randomBytes(16).toString('hex')}.enc`;

@@ -1,9 +1,12 @@
+import { retryAccountPhotoCleanup } from '$lib/server/storage/accountCleanup';
 import type { Handle } from '@sveltejs/kit';
 import { redirect } from '@sveltejs/kit';
 import { SESSION_COOKIE, getSessionUser } from '$lib/server/auth';
 import { seedPresetsForAllUsers, seedCatalog } from '$lib/server/presets';
 import { seedPeptidePresetsForAllUsers } from '$lib/server/peptidePresets';
 import { ensureAdminExists } from '$lib/server/repositories/admin';
+
+retryAccountPhotoCleanup().catch((err) => console.error('Failed to retry account photo cleanup', err));
 
 const PUBLIC_PATHS = new Set(['/login', '/signup', '/manifest.webmanifest', '/service-worker.js']);
 

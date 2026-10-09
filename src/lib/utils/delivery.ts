@@ -128,3 +128,10 @@ export function containerTotalMcg(container: {
 function mgToMcgLocal(mg: number): number {
 	return mg * 1000;
 }
+
+/** Exact whole units only: quick-log must never silently round a planned amount. */
+export function exactWholeUnits(doseMcg: number, unitMcg: number): number | null {
+	if (!(doseMcg > 0) || !(unitMcg > 0) || !Number.isFinite(doseMcg / unitMcg)) return null;
+	const units = Math.round(doseMcg / unitMcg);
+	return units > 0 && Math.abs(units * unitMcg - doseMcg) <= Math.max(1e-9, doseMcg * 1e-9) ? units : null;
+}

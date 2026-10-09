@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { env } from '$env/dynamic/private';
-import { sniffImageExt } from './images';
+import { sniffImageExt, stripImageMetadata } from './images';
 
 // Photos live next to the SQLite file itself (DATABASE_URL) so they land on the same persisted
 // Docker volume in production without any extra configuration, and in a sibling ./uploads folder
@@ -25,7 +25,7 @@ export async function saveMealPhoto(mealId: number, file: File): Promise<string>
 
 	await mkdir(UPLOADS_DIR, { recursive: true });
 	const filename = `${mealId}-${randomBytes(8).toString('hex')}.${ext}`;
-	await writeFile(mealPhotoPath(filename), buffer);
+	await writeFile(mealPhotoPath(filename), await stripImageMetadata(buffer, ext));
 	return filename;
 }
 

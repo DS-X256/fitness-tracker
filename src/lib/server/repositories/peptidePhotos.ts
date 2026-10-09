@@ -1,6 +1,7 @@
 import { db } from '$lib/server/db';
 import { peptidePhotos } from '$lib/server/db/schema';
 import { and, desc, eq } from 'drizzle-orm';
+import { assertPeptideOwned } from './peptideRefs';
 import { isValidIsoDate } from '$lib/utils/isoDate';
 import { deletePeptidePhotoFile, savePeptidePhoto } from '$lib/server/storage/peptidePhotos';
 
@@ -50,6 +51,7 @@ export async function savePhoto(
 	file: File
 ): Promise<void> {
 	if (!isValidIsoDate(meta.date)) throw new Error('Invalid date');
+	if (meta.peptideId != null) await assertPeptideOwned(userId, meta.peptideId);
 	const caption = meta.caption ? meta.caption.trim().slice(0, 280) || null : null;
 
 	const saved = await savePeptidePhoto(userId, file); // validates + strips metadata + encrypts
@@ -77,6 +79,7 @@ export async function updatePhoto(
 	meta: { peptideId: number | null; date: string; caption: string | null }
 ): Promise<void> {
 	if (!isValidIsoDate(meta.date)) throw new Error('Invalid date');
+	if (meta.peptideId != null) await assertPeptideOwned(userId, meta.peptideId);
 	const caption = meta.caption ? meta.caption.trim().slice(0, 280) || null : null;
 
 	await db

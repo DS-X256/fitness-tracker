@@ -13,9 +13,14 @@
 		"db:push": "drizzle-kit push",
 		"db:generate": "drizzle-kit generate",
 		"db:migrate": "drizzle-kit migrate",
-		"db:studio": "drizzle-kit studio"
+		"db:studio": "drizzle-kit studio",
+		"test": "vitest run",
+		"test:e2e": "playwright test",
+		"backup": "node --env-file-if-exists=.env scripts/backup.js"
 	},
 	"devDependencies": {
+		"@axe-core/playwright": "^4.13.0",
+		"@playwright/test": "^1.64.0",
 		"@sveltejs/adapter-node": "^5.5.4",
 		"@sveltejs/kit": "^2.63.0",
 		"@sveltejs/vite-plugin-svelte": "^7.1.2",
@@ -27,7 +32,8 @@
 		"svelte-check": "^4.6.0",
 		"tailwindcss": "^4.3.0",
 		"typescript": "^6.0.3",
-		"vite": "^8.0.16"
+		"vite": "^8.0.16",
+		"vitest": "^5.0.3"
 	},
 	"dependencies": {
 		"@anthropic-ai/sdk": "^0.121.0",
@@ -40,6 +46,15 @@
 		"@zxing/browser": "^0.2.1",
 		"@zxing/library": "^0.23.0",
 		"better-sqlite3": "^12.10.0",
-		"drizzle-orm": "^0.45.2"
+		"drizzle-orm": "^0.45.2",
+		"sharp": "^0.35.5"
+	},
+	"overrides": {
+		"devalue": "^5.9.4",
+		"cookie": "^0.7.2",
+		"source-map-js": "^1.2.2",
+		"@esbuild-kit/core-utils": {
+			"esbuild": "^0.25.12"
+		}
 	}
 }
