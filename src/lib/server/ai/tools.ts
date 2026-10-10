@@ -8,7 +8,7 @@
 
 import type Anthropic from '@anthropic-ai/sdk';
 import { recentDaySummaries, getTargets } from '$lib/server/repositories/nutritionLog';
-import { weightStats, weightTrend } from '$lib/server/repositories/bodyMetrics';
+import { weightOverview } from '$lib/server/repositories/bodyMetrics';
 import { goalProgress } from '$lib/server/repositories/weightGoals';
 import { getSettings } from '$lib/server/repositories/userSettings';
 import { computeBmi, bmiCategory, bmiCategoryLabel } from '$lib/utils/bmi';
@@ -151,12 +151,13 @@ async function nutritionSummary(userId: number, input: Record<string, unknown>) 
 }
 
 async function bodyStats(userId: number) {
-	const [stats, goal, settings, trend] = await Promise.all([
-		weightStats(userId),
-		goalProgress(userId),
-		getSettings(userId),
-		weightTrend(userId, { days: 90 })
+	const weight = weightOverview(userId, { days: 90 });
+	const [overview, goal, settings] = await Promise.all([
+		weight,
+		weight.then(({ stats }) => goalProgress(userId, stats)),
+		getSettings(userId)
 	]);
+	const { stats, trend } = overview;
 	const bmi = stats && settings.heightCm ? computeBmi(stats.weightKg, settings.heightCm) : null;
 	return {
 		stats,
@@ -170,10 +171,10 @@ async function bodyStats(userId: number) {
 async function workoutOverview(userId: number) {
 	const today = todayIso();
 	const [sessions, muscleGroupSets] = await Promise.all([
-		listSessions(userId),
+		listSessions(userId, { limit: 12 }),
 		weeklySetsByMuscleGroup(userId, shiftIsoDate(today, -6), today)
 	]);
-	return { recentSessions: sessions.slice(0, 12), last7DaysMuscleGroupSets: muscleGroupSets };
+	return { recentSessions: sessions, last7DaysMuscleGroupSets: muscleGroupSets };
 }
 
 async function exerciseProgress(userId: number, input: Record<string, unknown>) {

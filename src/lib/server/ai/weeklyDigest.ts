@@ -45,13 +45,13 @@ async function callAndSave(
 ): Promise<Result> {
 	const [daySummaries, sessions, muscleSets, weightPoints] = await Promise.all([
 		recentDaySummaries(userId, 30),
-		listSessions(userId),
+		listSessions(userId, { from: weekStart, to: today }),
 		weeklySetsByMuscleGroup(userId, weekStart, today),
 		weightTrend(userId, { days: 7 })
 	]);
 
 	const weekDays = daySummaries.filter((d) => d.date >= weekStart && d.date <= today);
-	const weekSessions = sessions.filter((s) => s.date >= weekStart && s.date <= today);
+	const weekSessions = sessions;
 
 	const avgCalories = weekDays.length
 		? Math.round(weekDays.reduce((sum, d) => sum + d.calories, 0) / weekDays.length)

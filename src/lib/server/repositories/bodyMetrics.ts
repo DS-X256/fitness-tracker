@@ -104,8 +104,9 @@ export type WeightPoint = { date: string; weightKg: number; avgKg: number };
 
 const TREND_WINDOW = 7; // trailing points averaged for the smoothed line
 
-/** Body-weight series (ascending) with a trailing moving-average column for the trend line. */
-export async function weightTrend(userId: number, opts: { days?: number } = {}): Promise<WeightPoint[]> {
+type WeightReading = { date: string; weightKg: number };
+
+async function loadWeights(userId: number, opts: { days?: number } = {}): Promise<WeightReading[]> {
 	const conds = [eq(bodyMetrics.userId, userId), isNotNull(bodyMetrics.weightKg)];
 	if (opts.days) conds.push(gte(bodyMetrics.date, shiftIsoDate(todayIso(), -opts.days)));
 
@@ -115,12 +116,31 @@ export async function weightTrend(userId: number, opts: { days?: number } = {}):
 		.where(and(...conds))
 		.orderBy(asc(bodyMetrics.date));
 
-	const points = rows.map((r) => ({ date: r.date, weightKg: r.weightKg as number }));
+	return rows.map((r) => ({ date: r.date, weightKg: r.weightKg as number }));
+}
+
+function smoothWeights(points: WeightReading[]): WeightPoint[] {
 	return points.map((p, i) => {
 		const slice = points.slice(Math.max(0, i - TREND_WINDOW + 1), i + 1);
 		const avg = slice.reduce((s, x) => s + x.weightKg, 0) / slice.length;
 		return { date: p.date, weightKg: p.weightKg, avgKg: Math.round(avg * 100) / 100 };
 	});
+}
+
+/** Body-weight series (ascending) with a trailing moving-average column for the trend line. */
+export async function weightTrend(userId: number, opts: { days?: number } = {}): Promise<WeightPoint[]> {
+	return smoothWeights(await loadWeights(userId, opts));
+}
+
+/** One history read for both lifetime statistics and a bounded chart. Smoothing starts
+ *  at the chart boundary, matching weightTrend's existing behavior. */
+export async function weightOverview(userId: number, opts: { days?: number } = {}) {
+	const points = await loadWeights(userId);
+	const from = opts.days ? shiftIsoDate(todayIso(), -opts.days) : null;
+	return {
+		stats: statsFromWeights(points),
+		trend: smoothWeights(from ? points.filter((p) => p.date >= from) : points)
+	};
 }
 
 export type WeightStats = {
@@ -134,12 +154,15 @@ export type WeightStats = {
 };
 
 export async function weightStats(userId: number): Promise<WeightStats | null> {
-	const points = await weightTrend(userId);
+	return statsFromWeights(await loadWeights(userId));
+}
+
+function statsFromWeights(points: WeightReading[]): WeightStats | null {
 	if (points.length === 0) return null;
 	const latest = points[points.length - 1];
 
 	const baselineOnOrBefore = (targetDate: string) => {
-		let found: WeightPoint | null = null;
+		let found: WeightReading | null = null;
 		for (const p of points) {
 			if (p.date <= targetDate) found = p;
 			else break;

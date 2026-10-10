@@ -6,8 +6,7 @@ import {
 	latestBodyMetric,
 	listBodyMetrics,
 	logBodyMetrics,
-	weightStats,
-	weightTrend,
+	weightOverview,
 	type BodyMetricInput
 } from '$lib/server/repositories/bodyMetrics';
 import { deleteWeightGoal, goalProgress, upsertWeightGoal } from '$lib/server/repositories/weightGoals';
@@ -22,11 +21,11 @@ import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const userId = locals.user!.id;
-	const [settings, stats, trend, goal, latest, today, recent, photos, insight] = await Promise.all([
+	const weight = weightOverview(userId, { days: 180 });
+	const [settings, overview, goal, latest, today, recent, photos, insight] = await Promise.all([
 		getSettings(userId),
-		weightStats(userId),
-		weightTrend(userId, { days: 180 }),
-		goalProgress(userId),
+		weight,
+		weight.then(({ stats }) => goalProgress(userId, stats)),
 		latestBodyMetric(userId),
 		getBodyMetric(userId, todayIso()),
 		listBodyMetrics(userId, { limit: 10 }),
@@ -36,8 +35,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 	return {
 		settings,
-		stats,
-		trend,
+		stats: overview.stats,
+		trend: overview.trend,
 		goal,
 		latest,
 		today,

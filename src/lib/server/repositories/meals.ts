@@ -83,28 +83,68 @@ async function assertMealOwned(userId: number, mealId: number) {
 	if (!row) throw new Error('Meal not found');
 }
 
+type MacroIngredient = {
+	quantity: number;
+	subMealId: number | null;
+	product: Macros | null;
+};
+
+/** Loads each ingredient layer once and reuses sub-recipe totals within this calculation.
+ *  The maps are request-local so edits to ingredients/products are visible on the next read. */
+async function computeMealMacrosBatch(mealIds: number[]): Promise<Map<number, Macros>> {
+	const ingredientsByMeal = new Map<number, MacroIngredient[]>();
+	let pending = [...new Set(mealIds)];
+	while (pending.length) {
+		for (const id of pending) ingredientsByMeal.set(id, []);
+		const rows = await db
+			.select({
+				mealId: mealIngredients.mealId,
+				quantity: mealIngredients.quantity,
+				subMealId: mealIngredients.subMealId,
+				product: {
+					id: products.id,
+					calories: products.calories,
+					protein: products.protein,
+					carbs: products.carbs,
+					fat: products.fat
+				}
+			})
+			.from(mealIngredients)
+			.leftJoin(products, eq(products.id, mealIngredients.productId))
+			.where(inArray(mealIngredients.mealId, pending))
+			.orderBy(asc(mealIngredients.id));
+		const next = new Set<number>();
+		for (const row of rows) {
+			ingredientsByMeal.get(row.mealId)!.push(row);
+			if (row.subMealId != null && !ingredientsByMeal.has(row.subMealId)) next.add(row.subMealId);
+		}
+		pending = [...next];
+	}
+
+	const totals = new Map<number, Macros>();
+	const visiting = new Set<number>();
+	const compute = (id: number): Macros => {
+		const cached = totals.get(id);
+		if (cached) return cached;
+		if (visiting.has(id)) throw new Error('A meal cannot include itself');
+		visiting.add(id);
+		const parts: Macros[] = [];
+		for (const ing of ingredientsByMeal.get(id) ?? []) {
+			if (ing.product) parts.push(scaleMacros(ing.product, ing.quantity));
+			else if (ing.subMealId != null) parts.push(scaleMacros(compute(ing.subMealId), ing.quantity));
+		}
+		const total = sumMacros(parts);
+		visiting.delete(id);
+		totals.set(id, total);
+		return total;
+	};
+	for (const id of mealIds) compute(id);
+	return totals;
+}
+
 /** Sums a meal's ingredients (products directly, sub-meals recursively — bounded to depth 1 by construction). */
 export async function computeMealMacros(mealId: number): Promise<Macros> {
-	const ingredients = await db.select().from(mealIngredients).where(eq(mealIngredients.mealId, mealId));
-	if (ingredients.length === 0) return { calories: 0, protein: 0, carbs: 0, fat: 0 };
-
-	const productIds = ingredients.filter((i) => i.productId != null).map((i) => i.productId!);
-	const productRows = productIds.length
-		? await db.select().from(products).where(inArray(products.id, productIds))
-		: [];
-	const productById = new Map(productRows.map((p) => [p.id, p]));
-
-	const totals: Macros[] = [];
-	for (const ing of ingredients) {
-		if (ing.productId != null) {
-			const product = productById.get(ing.productId);
-			if (product) totals.push(scaleMacros(product, ing.quantity));
-		} else if (ing.subMealId != null) {
-			const subTotal = await computeMealMacros(ing.subMealId);
-			totals.push(scaleMacros(subTotal, ing.quantity));
-		}
-	}
-	return sumMacros(totals);
+	return (await computeMealMacrosBatch([mealId])).get(mealId)!;
 }
 
 export async function listMeals(userId: number, opts: { search?: string; categoryId?: number } = {}) {
@@ -135,7 +175,8 @@ export async function listMeals(userId: number, opts: { search?: string; categor
 		.orderBy(asc(meals.name));
 
 	const withCategories = await attachCategories(rows);
-	return Promise.all(withCategories.map(async (m) => ({ ...m, totalMacros: await computeMealMacros(m.id) })));
+	const totals = await computeMealMacrosBatch(rows.map((m) => m.id));
+	return withCategories.map((m) => ({ ...m, totalMacros: totals.get(m.id)! }));
 }
 
 export async function recentMeals(userId: number, limit: number) {
@@ -146,7 +187,8 @@ export async function recentMeals(userId: number, limit: number) {
 		.orderBy(desc(meals.createdAt))
 		.limit(limit);
 	const withCategories = await attachCategories(rows);
-	return Promise.all(withCategories.map(async (m) => ({ ...m, totalMacros: await computeMealMacros(m.id) })));
+	const totals = await computeMealMacrosBatch(rows.map((m) => m.id));
+	return withCategories.map((m) => ({ ...m, totalMacros: totals.get(m.id)! }));
 }
 
 export async function getMeal(userId: number, id: number) {
@@ -189,6 +231,7 @@ async function buildMealDetail(meal: typeof meals.$inferSelect) {
 	]);
 	const productById = new Map(productRows.map((p) => [p.id, p]));
 	const subMealById = new Map(subMealRows.map((m) => [m.id, m]));
+	const subMealTotals = await computeMealMacrosBatch(subMealRows.map((m) => m.id));
 
 	const ingredients: MealIngredientView[] = [];
 	for (const ing of ingredientRows) {
@@ -211,7 +254,7 @@ async function buildMealDetail(meal: typeof meals.$inferSelect) {
 		} else if (ing.subMealId != null) {
 			const subMeal = subMealById.get(ing.subMealId);
 			if (!subMeal) continue;
-			const unitMacros = await computeMealMacros(subMeal.id);
+			const unitMacros = subMealTotals.get(subMeal.id)!;
 			ingredients.push({
 				id: ing.id,
 				quantity: ing.quantity,

@@ -35,7 +35,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 			getTargets(userId),
 			daySummary(userId, today),
 			listDay(userId, today),
-			listSessions(userId),
+			listSessions(userId, { from: weekFrom, to: today }),
 			goalsWithProgress(userId),
 			recentExerciseProgress(userId, 3),
 			listMeals(userId),
@@ -53,7 +53,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 				protein: Math.round(weekDays.reduce((sum, d) => sum + d.protein, 0) / daysLogged)
 			}
 		: null;
-	const weekSessions = sessions.filter((s) => s.date >= weekFrom && s.date <= today);
+	const weekSessions = sessions;
 	const week = {
 		daysLogged,
 		avg: weekAvg,

@@ -4,7 +4,7 @@
 
 import { generateText, AI_MODEL_HAIKU, AI_DAILY_LIMIT_PER_USER } from './client';
 import { getCached, save, type BodyInsight } from '$lib/server/repositories/bodyInsights';
-import { weightStats, weightTrend } from '$lib/server/repositories/bodyMetrics';
+import { weightOverview } from '$lib/server/repositories/bodyMetrics';
 import { goalProgress } from '$lib/server/repositories/weightGoals';
 import { getSettings } from '$lib/server/repositories/userSettings';
 import { computeBmi, bmiCategory, bmiCategoryLabel } from '$lib/utils/bmi';
@@ -21,12 +21,13 @@ export async function generateBodyInsight(userId: number): Promise<Result> {
 		return { insight: cached, fromCache: true };
 	}
 
-	const [stats, goal, settings, trend] = await Promise.all([
-		weightStats(userId),
-		goalProgress(userId),
-		getSettings(userId),
-		weightTrend(userId, { days: 90 })
+	const weight = weightOverview(userId, { days: 90 });
+	const [overview, goal, settings] = await Promise.all([
+		weight,
+		weight.then(({ stats }) => goalProgress(userId, stats)),
+		getSettings(userId)
 	]);
+	const { stats, trend } = overview;
 	const bmiValue = stats && settings.heightCm ? computeBmi(stats.weightKg, settings.heightCm) : null;
 
 	const input = {
