@@ -8,15 +8,16 @@ import { build, files, version } from '$service-worker';
 declare const self: ServiceWorkerGlobalScope;
 
 const CACHE = `app-shell-${version}`;
-// Precache the built JS/CSS bundle plus everything in /static (icons, manifest, fonts) —
-// this is what lets the installed PWA repaint its shell instantly, offline or on a flaky connection.
-const ASSETS = [...build, ...files];
+// Keep the shell available offline. Fonts are cached on demand, so installing the PWA
+// doesn't download every weight, alphabet and unused theme font.
+const ASSETS = new Set([...build, ...files]);
+const PRECACHE = [...ASSETS].filter((path) => !/\.woff2?$/.test(path));
 
 self.addEventListener('install', (event) => {
 	event.waitUntil(
 		caches
 			.open(CACHE)
-			.then((cache) => cache.addAll(ASSETS))
+			.then((cache) => cache.addAll(PRECACHE))
 			.then(() => self.skipWaiting())
 	);
 });
@@ -30,28 +31,32 @@ self.addEventListener('activate', (event) => {
 	);
 });
 
-// Network-first for everything (this app is a live, single-user tool backed by SQLite — data must
-// always come from the server when reachable). Precached shell assets are the offline fallback only.
+// Versioned shell assets can be served immediately from this build's cache. Live pages
+// stay network-first; API responses and private photos never enter the asset cache.
 self.addEventListener('fetch', (event) => {
 	if (event.request.method !== 'GET') return;
+	const url = new URL(event.request.url);
+	if (url.origin !== self.location.origin) return;
+	const isAsset = ASSETS.has(url.pathname);
+	if (!isAsset && event.request.mode !== 'navigate') return;
 
 	event.respondWith(
 		(async () => {
-			const cache = await caches.open(CACHE);
-
-			try {
-				const response = await fetch(event.request);
-				if (response.ok && ASSETS.includes(new URL(event.request.url).pathname)) {
-					cache.put(event.request, response.clone());
-				}
-				return response;
-			} catch {
+			if (isAsset) {
+				const cache = await caches.open(CACHE);
 				const cached = await cache.match(event.request);
 				if (cached) return cached;
-				if (event.request.mode === 'navigate') {
-					const offline = await cache.match('/offline.html');
-					if (offline) return offline;
-				}
+				const response = await fetch(event.request);
+				if (response.ok) event.waitUntil(cache.put(event.request, response.clone()));
+				return response;
+			}
+
+			try {
+				return await fetch(event.request);
+			} catch {
+				const cache = await caches.open(CACHE);
+				const offline = await cache.match('/offline.html');
+				if (offline) return offline;
 				throw new Error('offline and not cached');
 			}
 		})()

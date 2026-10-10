@@ -2,10 +2,13 @@ import { isValidIsoDate } from '$lib/utils/isoDate';
 import { validateWorkoutSet } from '$lib/utils/workoutValidation';
 import { db } from '$lib/server/db';
 import { workoutSessions, workoutSets, exercises } from '$lib/server/db/schema';
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, lte, sql } from 'drizzle-orm';
 
-export async function listSessions(userId: number) {
-	return db
+export async function listSessions(userId: number, opts: { from?: string; to?: string; limit?: number } = {}) {
+	const conditions = [eq(workoutSessions.userId, userId)];
+	if (opts.from) conditions.push(gte(workoutSessions.date, opts.from));
+	if (opts.to) conditions.push(lte(workoutSessions.date, opts.to));
+	const query = db
 		.select({
 			id: workoutSessions.id,
 			date: workoutSessions.date,
@@ -17,9 +20,10 @@ export async function listSessions(userId: number) {
 		})
 		.from(workoutSessions)
 		.leftJoin(workoutSets, eq(workoutSets.sessionId, workoutSessions.id))
-		.where(eq(workoutSessions.userId, userId))
+		.where(and(...conditions))
 		.groupBy(workoutSessions.id)
 		.orderBy(desc(workoutSessions.date), desc(workoutSessions.createdAt));
+	return opts.limit !== undefined ? query.limit(opts.limit) : query;
 }
 
 export async function createSession(userId: number, date: string, notes?: string | null, planId?: number | null) {

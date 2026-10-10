@@ -2,7 +2,7 @@ import { db } from '$lib/server/db';
 import { weightGoals } from '$lib/server/db/schema';
 import { eq } from 'drizzle-orm';
 import { isValidIsoDate } from '$lib/utils/isoDate';
-import { weightStats } from './bodyMetrics';
+import { weightStats, type WeightStats } from './bodyMetrics';
 
 export type WeightGoal = { targetWeightKg: number; targetDate: string | null };
 
@@ -43,11 +43,12 @@ export type WeightGoalProgress = {
 	etaWeeks: number | null;
 };
 
-/** Combines the goal with live weight stats to produce progress + an ETA projection. */
-export async function goalProgress(userId: number): Promise<WeightGoalProgress | null> {
+/** Combines the goal with live weight stats to produce progress + an ETA projection.
+ *  Callers that already loaded this user's stats can reuse them, including an empty history (null). */
+export async function goalProgress(userId: number, knownStats?: WeightStats | null): Promise<WeightGoalProgress | null> {
 	const goal = await getWeightGoal(userId);
 	if (!goal) return null;
-	const stats = await weightStats(userId);
+	const stats = knownStats === undefined ? await weightStats(userId) : knownStats;
 	if (!stats) {
 		return {
 			targetWeightKg: goal.targetWeightKg,
