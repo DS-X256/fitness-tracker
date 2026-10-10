@@ -253,7 +253,7 @@
 				When enabled, the data a question touches — meals, workouts, body metrics, and peptide logs (compound names,
 				doses, schedules, and for dose-level questions your dose notes and side-effect check-ins) — is sent to
 				Anthropic's Claude API to generate answers. Evidence questions can trigger live lookups against NCBI/PubMed and
-				ClinicalTrials.gov, and web searches run by Anthropic — those only ever carry search terms like a compound
+				ClinicalTrials.gov and Peptpedia, and web searches run by Anthropic — those only ever carry search terms like a compound
 				name, never your doses, schedule, or other personal data. Off by default. The coach reasons and gives labelled
 				estimates from evidence; it's not medical advice — involve a clinician for medical decisions.
 			</p>
