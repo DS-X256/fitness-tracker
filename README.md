@@ -187,6 +187,14 @@ sync). Production uses versioned SQL migrations in `drizzle/`, generated with
 `npm run db:generate` after changing `src/lib/server/db/schema.ts` and applied
 automatically by the container on startup (`scripts/migrate.js`).
 
+The AI Coach can consult [Peptpedia](https://peptpedia.org/) directly for peptide mechanisms,
+pharmacokinetics and research summaries. Both `lookup_peptpedia` and `research_peptide` use its
+official AI index and profile markdown, return source URLs for citations, and work without a
+Peptpedia API key or Anthropic web search. Only public index/profile URLs are requested;
+personal logs are not sent to Peptpedia. Successful lookups are cached in memory for six hours.
+Peptpedia is treated as a secondary reference alongside PubMed and ClinicalTrials.gov; failed
+lookups are reported explicitly rather than interpreted as absence of evidence.
+
 ## Tech stack
 
 SvelteKit (Svelte 5, TypeScript) with `adapter-node`, one process serving both the UI

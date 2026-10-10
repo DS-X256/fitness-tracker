@@ -1,7 +1,7 @@
 // Live, stateless research lookups the AI Coach can call for a *named compound* — never a userId. This
 // is deliberately the opposite shape from ./tools.ts: those are thin, userId-scoped wrappers over this
 // app's own repositories with no new query logic; this file has real parsing/synthesis logic over public,
-// external, keyless biomedical APIs (NCBI E-utilities / PubMed, ClinicalTrials.gov) and touches no user
+// external, keyless sources (NCBI E-utilities / PubMed, ClinicalTrials.gov, Peptpedia) and touches no user
 // data at all — the only thing that can ever reach an outbound URL from here is a compound-name string.
 //
 // PubMed + ClinicalTrials.gov, searched under each compound's published synonyms, with abstracts for the
@@ -13,6 +13,7 @@
 
 import type Anthropic from '@anthropic-ai/sdk';
 import { env } from '$env/dynamic/private';
+import { lookupPeptpedia, type PeptpediaResult } from './peptpedia';
 
 const USER_AGENT = 'FitnessTracker-AICoach/1.0 (self-hosted; peptide-research tool)';
 const SOURCE_TIMEOUT_MS = 6_000;
@@ -21,9 +22,18 @@ const CACHE_MAX_ENTRIES = 200;
 
 export const RESEARCH_TOOLS: Anthropic.Tool[] = [
 	{
+		name: 'lookup_peptpedia',
+		description: 'Look up ONE named compound in Peptpedia (https://peptpedia.org/) using its official profile markdown. Returns reference text and a source URL for mechanisms, pharmacokinetics, research summaries and cited studies. Works even without web search. Treat it as a secondary source, verify medical claims with primary literature, and cite the returned URL. For blends, look up each component separately.',
+		input_schema: {
+			type: 'object',
+			properties: { compound: { type: 'string', description: 'One compound name, e.g. BPC-157, GHK-Cu or CJC-1295 (no DAC).', maxLength: 120 } },
+			required: ['compound']
+		}
+	},
+	{
 		name: 'research_peptide',
 		description:
-			"Live evidence lookup for ONE compound (not a blend — look up each component separately): PubMed literature searched under its common synonyms, with a separate count of human studies, the abstracts of the most relevant papers, registered ClinicalTrials.gov trials (status, phase, size, whether results are posted), FDA-approval status where applicable, and an evidence-tier verdict. Use it for any question about what the evidence shows, whether something works or is safe, what doses were studied, or trial status. Cite results as PMID/NCT numbers.",
+			"Live evidence lookup for ONE compound (not a blend — look up each component separately): PubMed literature searched under its common synonyms, with a separate count of human studies, the abstracts of the most relevant papers, registered ClinicalTrials.gov trials (status, phase, size, whether results are posted), FDA-approval status where applicable, an evidence-tier verdict, and a Peptpedia reference profile when available. Use it for any question about what the evidence shows, whether something works or is safe, what doses were studied, or trial status. Cite results as PMID/NCT numbers and cite the Peptpedia profile URL when using its content.",
 		input_schema: {
 			type: 'object',
 			properties: {
@@ -36,6 +46,8 @@ export const RESEARCH_TOOLS: Anthropic.Tool[] = [
 
 export function researchToolLabel(name: string): string {
 	switch (name) {
+		case 'lookup_peptpedia':
+			return 'Looking up Peptpedia…';
 		case 'research_peptide':
 			return 'Researching current evidence…';
 		default:
@@ -48,6 +60,8 @@ export function researchToolLabel(name: string): string {
 export async function runResearchTool(name: string, input: Record<string, unknown>): Promise<string> {
 	try {
 		switch (name) {
+			case 'lookup_peptpedia':
+				return JSON.stringify(await lookupPeptpedia(String(input.compound ?? '').trim()));
 			case 'research_peptide':
 				return JSON.stringify(await researchPeptide(String(input.compound ?? '').trim()));
 			default:
@@ -116,7 +130,8 @@ interface ResearchBundle {
 	approval: string | null;
 	pubmed: { totalResultCount: number; humanStudyCount: number; articles: PubMedArticle[] };
 	clinicalTrials: { totalCount: number; trials: Trial[] };
-	sourcesQueried: { pubmed: SourceStatus; clinicalTrials: SourceStatus };
+	peptpedia: PeptpediaResult;
+	sourcesQueried: { pubmed: SourceStatus; clinicalTrials: SourceStatus; peptpedia: PeptpediaResult['status'] };
 	asOf: string;
 }
 
@@ -216,7 +231,7 @@ function setCached(compound: string, bundle: ResearchBundle): void {
 // --- orchestration -------------------------------------------------------------------------------------
 
 async function researchPeptide(compound: string): Promise<ResearchBundle | { error: string } | { blend: string; note: string }> {
-	if (!compound) return { error: 'No compound name given.' };
+	if (!compound || compound.length > 120) return { error: 'Provide one compound name (up to 120 characters).' };
 	const blend = BLEND_NAMES[norm(compound)];
 	if (blend) return { blend: compound, note: `${blend}. Call research_peptide once per component; there is essentially no literature on the blend itself.` };
 
@@ -224,7 +239,8 @@ async function researchPeptide(compound: string): Promise<ResearchBundle | { err
 	if (cached) return cached;
 
 	const terms = synonymsFor(compound);
-	const [pubmedSettled, trialsSettled] = await Promise.allSettled([fetchPubMed(terms), fetchClinicalTrials(terms)]);
+	const [pubmedSettled, trialsSettled, peptpediaSettled] = await Promise.allSettled([fetchPubMed(terms), fetchClinicalTrials(terms), lookupPeptpedia(compound)]);
+	const peptpedia: PeptpediaResult = peptpediaSettled.status === 'fulfilled' ? peptpediaSettled.value : { source: 'Peptpedia', status: 'error', note: 'Peptpedia lookup failed.' };
 	const pubmed: PubMedResult =
 		pubmedSettled.status === 'fulfilled' ? pubmedSettled.value : { status: 'error', totalResultCount: 0, humanStudyCount: 0, articles: [] };
 	const trials: TrialsResult = trialsSettled.status === 'fulfilled' ? trialsSettled.value : { status: 'error', totalCount: 0, trials: [] };
@@ -239,13 +255,14 @@ async function researchPeptide(compound: string): Promise<ResearchBundle | { err
 		approval,
 		pubmed: { totalResultCount: pubmed.totalResultCount, humanStudyCount: pubmed.humanStudyCount, articles: pubmed.articles },
 		clinicalTrials: { totalCount: trials.totalCount, trials: trials.trials },
-		sourcesQueried: { pubmed: pubmed.status, clinicalTrials: trials.status },
+		peptpedia,
+		sourcesQueried: { pubmed: pubmed.status, clinicalTrials: trials.status, peptpedia: peptpedia.status },
 		asOf: new Date().toISOString().slice(0, 10)
 	};
 
 	// Only cache a bundle if at least one source actually answered — don't lock in a fully-failed lookup
 	// for 6 hours when the next question might hit a source that's recovered by then.
-	if (pubmed.status === 'ok' || trials.status === 'ok') setCached(compound, bundle);
+	if ((pubmed.status === 'ok' || trials.status === 'ok') && (peptpedia.status === 'ok' || peptpedia.status === 'not-found')) setCached(compound, bundle);
 	return bundle;
 }
 
